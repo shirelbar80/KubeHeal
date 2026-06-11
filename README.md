@@ -16,9 +16,10 @@ See [PLAN.md](PLAN.md) for the full design, decisions, and phased task breakdown
 
 ## Status
 
-✅ **Phase 1 — Observer complete.** Detects `OOMKilled` / `CrashLoopBackOff`,
-resolves the owning Deployment, and extracts logs + current spec. Next:
-Phase 2 (Brain / LLM diagnosis) → Phase 3 (Slack ChatOps).
+✅ **Phases 1–2 complete.** The Observer detects `OOMKilled` / `CrashLoopBackOff`,
+resolves the owning Deployment, and extracts logs + spec. The Brain (local Ollama
+model) turns an incident into a schema-validated, allow-list-checked patch. Next:
+Phase 3 (Slack ChatOps — Approve/Reject + apply).
 
 ## Tech stack
 

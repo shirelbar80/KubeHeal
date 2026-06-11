@@ -174,16 +174,16 @@ KubeHeal/
 
 ### Phase 2 — Local AI brain (Day 2)
 
-- [ ] Install Ollama; pull model (`ollama pull granite3.1-dense:2b` or `llama3.1:8b`).
-- [ ] `prompts/sre_system_prompt.txt`: strict SRE prompt — _"Analyze logs + current spec. Output JSON only: `{diagnosis, root_cause, confidence, patch:{...}, patch_explanation}`. The patch must be a valid K8s strategic-merge patch for the named Deployment. Do not invent fields."_
-- [ ] `brain.py`:
-  - Send system prompt + incident (logs, reason, **current resource spec**) to Ollama with `format=json`.
-  - **Validate** the returned JSON against a pydantic schema (`Diagnosis`/`Patch`).
-  - On invalid JSON → one retry with a "your last output was invalid JSON, fix it" message; then fail gracefully.
-- [ ] `safety.py`: enforce a **patch allow-list** — only permit mutations to a known-safe set of fields (e.g. `resources.limits/requests`, `livenessProbe`, `readinessProbe`, env values, replica count within bounds). Reject anything touching `image` to arbitrary registries, `securityContext` escalations, hostPath volumes, etc. **(see open question Q4)**
-- [ ] Wire Observer → Brain: on incident, fetch logs, call brain, print diagnosis + validated patch.
+- [x] Install Ollama; pull model (`ollama pull granite3.1-dense:2b` or `llama3.1:8b`).
+- [x] `prompts/sre_system_prompt.txt`: strict SRE prompt — _"Analyze logs + current spec. Output JSON only: `{diagnosis, root_cause, confidence, patch:{...}, patch_explanation}`. The patch must be a valid K8s strategic-merge patch for the named Deployment. Do not invent fields."_
+- [x] `brain.py`:
+  - Send system prompt + incident (logs, reason, **current resource spec**) to Ollama, constraining output to the `Diagnosis` JSON **schema** (stronger than plain `format=json`).
+  - **Validate** the returned JSON against the `Diagnosis` pydantic schema.
+  - On invalid JSON / schema / unsafe patch → feed the error back and retry (up to 3 attempts); then raise `BrainError`.
+- [x] `safety.py`: enforce a **patch allow-list** — per Q4, ONLY `resources` (limits/requests, cpu/memory) and probes (liveness/readiness/startup). Rejects image, command, env, securityContext, volumes, replicas, extra keys.
+- [x] Wire Observer → Brain: on incident, fetch logs, call brain, print diagnosis + validated patch.
 
-**Phase 2 done when:** an OOMKilled demo yields a valid JSON patch that bumps the memory limit, and a deliberately-broken model response is rejected by the validator.
+**Phase 2 done when:** an OOMKilled demo yields a valid JSON patch that bumps the memory limit, and a deliberately-broken model response is rejected by the validator. ✅ **DONE & VERIFIED** — live OOMKilled diagnosis bumped memory `10Mi → 40Mi`; CrashLoopBackOff correctly identified as a config issue with a within-allow-list mitigation; 13 unit tests pass (safety allow-list + Diagnosis parsing).
 
 ### Phase 3 — Interactive ChatOps via Slack (Day 3)
 
