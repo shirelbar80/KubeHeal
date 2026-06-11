@@ -23,7 +23,7 @@ A daemon that:
 | Topic | Decision |
 | --- | --- |
 | Local cluster tool | **Kind** (Kubernetes in Docker) |
-| LLM model | **`granite3.1-dense:3b`** via Ollama (swappable; 8B optional but slower on 4 GB VRAM) |
+| LLM model | **`granite3.1-dense:2b`** via Ollama (swappable; 8B optional but slower on 4 GB VRAM) |
 | Slack transport | **Socket Mode** (no ngrok) |
 | Patch allow-list | **`resources` (limits/requests) + probes only** |
 | Human approval | **Always required** — no auto-approve, ever |
@@ -149,28 +149,28 @@ KubeHeal/
 
 ### Phase 0 — Project bootstrap (½ day)
 
-- [ ] Create repo layout above; `git init`.
-- [ ] `requirements.txt`: `kubernetes`, `slack_bolt`, `ollama` (or `openai`), `pydantic-settings`, `fastapi`, `uvicorn`, `pytest`.
-- [ ] `.env.example` with all config keys (Slack tokens, model name, namespace, cooldown).
-- [ ] `config.py` loads settings via pydantic.
-- [ ] README skeleton.
+- [x] Create repo layout above; `git init`.
+- [x] `requirements.txt`: `kubernetes`, `slack_bolt`, `ollama` (or `openai`), `pydantic-settings`, `fastapi`, `uvicorn`, `pytest`.
+- [x] `.env.example` with all config keys (Slack tokens, model name, namespace, cooldown).
+- [x] `config.py` loads settings via pydantic.
+- [x] README skeleton.
 
 ### Phase 1 — Cluster observation & infra (Day 1)
 
-- [ ] Spin up local cluster (`kind create cluster` or `minikube start`).
-- [ ] Write `deploy/crashloop-demo.yaml`: a pod that OOMKills (e.g. tight `resources.limits.memory: 10Mi` + a process that allocates more) **and** a second demo that `CrashLoopBackOff`s (bad command/exit 1) for variety.
-- [ ] Write `deploy/rbac.yaml`: ServiceAccount + Role limited to `get/list/watch pods`, `get pods/log`, and `patch deployments` in one namespace. (Use this even when running locally with kubeconfig — document the least-privilege intent.)
-- [ ] `observer.py`: `watch.Watch().stream(v1.list_namespaced_pod, ...)`.
-- [ ] **Failure detection** from `pod.status.container_statuses`:
+- [x] Spin up local cluster (`kind create cluster` or `minikube start`). — Kind cluster `kubeheal`, namespace `kubeheal-demo`.
+- [x] Write `deploy/crashloop-demo.yaml`: a pod that OOMKills (e.g. tight `resources.limits.memory: 10Mi` + a process that allocates more) **and** a second demo that `CrashLoopBackOff`s (bad command/exit 1) for variety.
+- [x] Write `deploy/rbac.yaml`: ServiceAccount + Role limited to `get/list/watch pods`, `get pods/log`, and `patch deployments` in one namespace. (Use this even when running locally with kubeconfig — document the least-privilege intent.)
+- [x] `observer.py`: `watch.Watch().stream(v1.list_namespaced_pod, ...)`.
+- [x] **Failure detection** from `pod.status.container_statuses`:
   - `state.waiting.reason == "CrashLoopBackOff"`
   - `state.terminated.reason == "OOMKilled"`
   - `last_state.terminated.reason == "OOMKilled"` (catch already-restarted)
-- [ ] `log_fetcher.py`: last 50 lines via `read_namespaced_pod_log(..., tail_lines=50)`; also fetch `previous=True` logs (the crashed container's logs are usually in the _previous_ instance).
-- [ ] Map a pod back to its **owner** (ReplicaSet → Deployment) so patches target the Deployment, not the ephemeral pod.
-- [ ] **Dedup + cooldown**: in-memory (then SQLite) keyed by owner workload; ignore repeat events within N minutes.
-- [ ] Manual test: deploy demo, confirm exactly one detection per workload with logs printed.
+- [x] `log_fetcher.py`: last 50 lines via `read_namespaced_pod_log(..., tail_lines=50)`; also fetch `previous=True` logs (the crashed container's logs are usually in the _previous_ instance). _Note: client mis-deserializes the log endpoint with `_preload_content=True` (returns the `repr` of bytes) — fixed by reading the raw response and decoding._
+- [x] Map a pod back to its **owner** (ReplicaSet → Deployment) so patches target the Deployment, not the ephemeral pod.
+- [x] **Dedup + cooldown**: in-memory (then SQLite) keyed by owner workload; ignore repeat events within N minutes.
+- [x] Manual test: deploy demo, confirm exactly one detection per workload with logs printed.
 
-**Phase 1 done when:** crashing a demo pod prints a single structured `Incident` (workload, reason, logs) to console.
+**Phase 1 done when:** crashing a demo pod prints a single structured `Incident` (workload, reason, logs) to console. ✅ **DONE & VERIFIED** — both `OOMKilled` and `CrashLoopBackOff` detected with correct workload, spec, and decoded logs.
 
 ### Phase 2 — Local AI brain (Day 2)
 

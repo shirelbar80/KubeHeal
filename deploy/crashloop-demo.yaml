@@ -1,0 +1,68 @@
+# Demo workloads that deliberately fail, for exercising KubeHeal end-to-end.
+# Both live in the kubeheal-demo namespace.
+#
+#   kubectl apply -f deploy/crashloop-demo.yaml
+#
+# - oom-demo:       allocates ~50Mi against a 10Mi limit  -> OOMKilled
+# - crashloop-demo: exits 1 on startup                    -> CrashLoopBackOff
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom-demo
+  namespace: kubeheal-demo
+  labels: { app: oom-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: oom-demo }
+  template:
+    metadata:
+      labels: { app: oom-demo }
+    spec:
+      containers:
+        - name: hog
+          image: python:3.11-alpine
+          # Allocate 50MB, then idle. With a 10Mi limit the kernel OOM-kills it.
+          command: ["python", "-c"]
+          args:
+            - |
+              import time
+              print("oom-demo starting; allocating memory", flush=True)
+              blob = bytearray(50 * 1024 * 1024)
+              print("allocated 50MB", flush=True)
+              time.sleep(3600)
+          resources:
+            limits:
+              memory: "10Mi"
+            requests:
+              memory: "10Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop-demo
+  namespace: kubeheal-demo
+  labels: { app: crashloop-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: crashloop-demo }
+  template:
+    metadata:
+      labels: { app: crashloop-demo }
+    spec:
+      containers:
+        - name: boom
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "crashloop-demo starting"
+              echo "FATAL: required config /etc/app/config.yaml not found" >&2
+              exit 1
+          resources:
+            limits:
+              memory: "32Mi"
+            requests:
+              memory: "16Mi"

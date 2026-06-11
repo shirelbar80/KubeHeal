@@ -1,0 +1,46 @@
+# Least-privilege RBAC for KubeHeal, scoped to a single namespace.
+# Even when running locally with your kubeconfig, this documents (and, when run
+# in-cluster in Phase 4, enforces) exactly what the agent is allowed to do:
+#   - watch/read pods and their logs (detection + diagnosis)
+#   - read replicasets/deployments (resolve a pod's owning workload)
+#   - patch deployments (apply approved remediation)
+# It can touch NOTHING outside kubeheal-demo, and nothing cluster-scoped.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubeheal
+  namespace: kubeheal-demo
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kubeheal
+  namespace: kubeheal-demo
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kubeheal
+  namespace: kubeheal-demo
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kubeheal
+subjects:
+  - kind: ServiceAccount
+    name: kubeheal
+    namespace: kubeheal-demo

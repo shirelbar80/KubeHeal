@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # --- Local LLM (Ollama) ---
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "granite3.1-dense:3b"
+    ollama_model: str = "granite3.1-dense:2b"
 
     # --- Slack ---
     slack_bot_token: str = ""

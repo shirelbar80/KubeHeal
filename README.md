@@ -16,14 +16,15 @@ See [PLAN.md](PLAN.md) for the full design, decisions, and phased task breakdown
 
 ## Status
 
-🚧 **Phase 0 — scaffolding.** Components are stubbed; implementation proceeds
-Phase 1 (Observer) → Phase 2 (Brain) → Phase 3 (Slack ChatOps).
+✅ **Phase 1 — Observer complete.** Detects `OOMKilled` / `CrashLoopBackOff`,
+resolves the owning Deployment, and extracts logs + current spec. Next:
+Phase 2 (Brain / LLM diagnosis) → Phase 3 (Slack ChatOps).
 
 ## Tech stack
 
 - Python 3.10+ (use the `py` launcher on Windows)
 - Local cluster: **Kind**
-- Local LLM: **Ollama** running `granite3.1-dense:3b`
+- Local LLM: **Ollama** running `granite3.1-dense:2b`
 - ChatOps: **Slack** via `slack-bolt` in **Socket Mode** (no ngrok)
 - K8s access: official `kubernetes` Python client
 - State: SQLite
@@ -50,7 +51,7 @@ pip install -r requirements.txt
 kind create cluster --name kubeheal
 
 # 3. Local LLM
-ollama pull granite3.1-dense:3b
+ollama pull granite3.1-dense:2b
 
 # 4. Config
 copy .env.example .env   # then fill in Slack tokens + channel
