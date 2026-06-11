@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     log_tail_lines: int = 50
     verify_timeout_seconds: int = 120
 
+    # --- State ---
+    db_path: str = "kubeheal.sqlite"
+
     # --- Optional internal API ---
     health_port: int = 8000
 

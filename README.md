@@ -16,10 +16,10 @@ See [PLAN.md](PLAN.md) for the full design, decisions, and phased task breakdown
 
 ## Status
 
-✅ **Phases 1–2 complete.** The Observer detects `OOMKilled` / `CrashLoopBackOff`,
-resolves the owning Deployment, and extracts logs + spec. The Brain (local Ollama
-model) turns an incident into a schema-validated, allow-list-checked patch. Next:
-Phase 3 (Slack ChatOps — Approve/Reject + apply).
+✅ **Phases 1–3 code complete.** Full pipeline: detect → diagnose (local LLM) →
+Slack Approve/Reject → dry-run → apply → verify → rollback, with a SQLite audit
+trail. The detect/diagnose/remediate chain is verified live against Kind; the
+only step awaiting the user is plugging in Slack tokens for the live button test.
 
 ## Tech stack
 
@@ -57,9 +57,26 @@ ollama pull granite3.1-dense:2b
 # 4. Config
 copy .env.example .env   # then fill in Slack tokens + channel
 
-# 5. Run (once implemented)
+# 5. Run
 py -m kubeheal.main
 ```
+
+## Slack setup
+
+1. Create the app from [`deploy/slack-manifest.yaml`](deploy/slack-manifest.yaml):
+   **https://api.slack.com/apps → Create New App → From a manifest**, pick your
+   workspace, paste the YAML, Create.
+2. **Install App → Install to Workspace → Allow.**
+3. Collect the two tokens into `.env`:
+   - **Bot User OAuth Token** (`xoxb-…`) from *OAuth & Permissions* → `SLACK_BOT_TOKEN`
+   - **App-Level Token** (`xapp-…`) from *Basic Information → App-Level Tokens*
+     (create one with the `connections:write` scope) → `SLACK_APP_TOKEN`
+4. Invite the bot to your channel: `/invite @KubeHeal` in `#all-kubeheal-dev`.
+5. `py -m kubeheal.main`, then break a demo workload:
+   `kubectl apply -f deploy/crashloop-demo.yaml`.
+
+Socket Mode means **no public URL / ngrok** is needed — button clicks arrive over
+an outbound WebSocket.
 
 ## Safety model
 

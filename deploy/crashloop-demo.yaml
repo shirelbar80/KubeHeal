@@ -23,14 +23,15 @@ spec:
       containers:
         - name: hog
           image: python:3.11-alpine
-          # Allocate 50MB, then idle. With a 10Mi limit the kernel OOM-kills it.
+          # Allocate 20MB, then idle. With a 10Mi limit the kernel OOM-kills it;
+          # a sensible bump (the LLM proposes ~40Mi) comfortably fits ~30MB RSS.
           command: ["python", "-c"]
           args:
             - |
               import time
               print("oom-demo starting; allocating memory", flush=True)
-              blob = bytearray(50 * 1024 * 1024)
-              print("allocated 50MB", flush=True)
+              blob = bytearray(20 * 1024 * 1024)
+              print("allocated 20MB", flush=True)
               time.sleep(3600)
           resources:
             limits:

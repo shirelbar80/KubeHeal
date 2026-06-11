@@ -187,22 +187,23 @@ KubeHeal/
 
 ### Phase 3 — Interactive ChatOps via Slack (Day 3)
 
-- [ ] Create a Slack app (manifest provided in README). Scopes: `chat:write`, `commands`, plus enable **Socket Mode** (App-Level Token `xapp-…`) and **Interactivity**.
-- [ ] `slack_app.py` (Bolt, Socket Mode):
-  - Block Kit message: diagnosis, confidence, a **rendered diff/patch** in a code block, and **Approve / Reject** buttons (+ optional "Edit" that opens a modal or accepts a thread reply).
-  - Action handler `approve_patch` → look up pending incident in store → call remediator.
+- [x] Create a Slack app (manifest at `deploy/slack-manifest.yaml`). Scope `chat:write`, **Socket Mode** (App-Level Token `xapp-…`) and **Interactivity** enabled. _(User action: create app from manifest + paste tokens into `.env`.)_
+- [x] `slack_app.py` (Bolt, Socket Mode):
+  - Block Kit message: diagnosis, confidence, root cause, the **rendered patch** in a code block, and **Approve / Reject** buttons.
+  - Action handler `approve_patch` → look up pending incident in store → call remediator → update message with outcome.
   - Action handler `reject_patch` → mark rejected, update message.
   - **Text override — DEFERRED (Phase 3 stretch, to be done LATER):** _not part of the MVP._ The MVP ships with Approve/Reject buttons only. Once those work end-to-end, this feature will be added later: listen for thread replies / `message` events; pass user text + original incident back to `brain.py` to _rewrite_ the patch, then post the new patch for re-approval.
-- [ ] `store.py` (SQLite): `pending_approvals(id, workload, patch_json, status, created_at)` + `audit_log(...)`. Persist on alert; update on action.
-- [ ] `remediator.py`:
-  - **dry-run first**: `patch_namespaced_deployment(..., dry_run="All")` → if it errors, report back to Slack, don't apply.
-  - Apply for real; record in audit log.
-  - **Verify recovery**: watch the workload for ~N seconds; report success/failure back to the Slack thread.
-  - **Rollback hook**: keep the previous spec; offer a rollback button if recovery fails.
-- [ ] `main.py`: start observer (thread/async task) + Slack Socket Mode app together; graceful shutdown.
-- [ ] FastAPI (optional): `/healthz`, `/metrics` only.
+- [x] `store.py` (SQLite): `pending_approvals(...)` + `audit_log(...)`. Persist on alert; update on action. Verified.
+- [x] `remediator.py`:
+  - **dry-run first**: `patch_namespaced_deployment(..., dry_run="All")` → if it errors, report back, don't apply.
+  - Apply for real (strategic-merge patch); record in audit log.
+  - **Verify recovery**: poll the Deployment rollout for ~N seconds; report success/failure.
+  - **Rollback**: capture the previous spec and restore it if recovery fails. _Verified live: OOM fix applied, pod recovered 1/1._
+- [x] `main.py`: start observer (background thread) + Slack Socket Mode app (main thread); per-incident worker threads so a slow LLM call never blocks the watch.
+- [ ] FastAPI (optional): `/healthz`, `/metrics` only. _(Deferred — not needed for MVP with Socket Mode.)_
 
 **Phase 3 done when (MVP):** crashing the demo → Slack alert → click Approve → patch applied via dry-run-then-real → pod recovers → success posted in thread. Reject path also works. (Text-override is **explicitly out of MVP scope — added later** as a stretch.)
+→ **Code complete & locally verified** (detect→diagnose→dry-run→apply→verify→rollback, store, message build/update logic). **Remaining: the live Slack click test**, which needs the user's `SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN` in `.env`.
 
 ### Phase 4 — Hardening & polish (stretch)
 

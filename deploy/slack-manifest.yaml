@@ -1,0 +1,32 @@
+# KubeHeal Slack app manifest.
+#
+# Create the app from this file:
+#   1. https://api.slack.com/apps  ->  Create New App  ->  From a manifest
+#   2. Pick your workspace, paste this YAML, Create.
+#   3. Install App -> Install to Workspace -> Allow.
+#   4. Collect tokens:
+#        - Bot User OAuth Token (xoxb-...)  under "OAuth & Permissions"  -> SLACK_BOT_TOKEN
+#        - App-Level Token (xapp-...)       under "Basic Information ->
+#          App-Level Tokens" (create one with the connections:write scope) -> SLACK_APP_TOKEN
+#   5. Invite the bot to the channel:  /invite @KubeHeal  in #all-kubeheal-dev
+#
+# Socket Mode is enabled, so NO public URL / request URL / ngrok is required;
+# button clicks are delivered over an outbound WebSocket.
+display_information:
+  name: KubeHeal
+  description: Autonomous Kubernetes remediation agent (human-in-the-loop)
+  background_color: "#1f2d3d"
+features:
+  bot_user:
+    display_name: KubeHeal
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - chat:write
+settings:
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false
