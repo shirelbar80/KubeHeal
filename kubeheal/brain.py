@@ -17,8 +17,18 @@ from pydantic import ValidationError
 
 from config import settings
 
+from .logging_setup import get_logger, kv
 from .models import Diagnosis, Incident
 from .safety import UnsafePatchError, validate_patch
+
+log = get_logger("kubeheal.brain")
+
+# camelCase patch key -> snake_case client attr in current_spec.
+_PROBE_KEYS = {
+    "livenessProbe": "liveness_probe",
+    "readinessProbe": "readiness_probe",
+    "startupProbe": "startup_probe",
+}
 
 _PROMPT_PATH = Path(__file__).resolve().parent.parent / "prompts" / "sre_system_prompt.txt"
 _MAX_ATTEMPTS = 3
@@ -61,6 +71,23 @@ def _incident_prompt(incident: Incident) -> str:
     )
 
 
+def _strip_invented_probes(patch: dict, incident: Incident) -> None:
+    """Remove probe fields the model added that weren't already on the container.
+
+    Small models tend to bolt on plausible-looking probes (e.g. an HTTP probe on
+    a port nothing serves), which then fail and block recovery. Policy: modifying
+    an EXISTING probe is allowed; inventing a NEW one is not. Mutates in place.
+    """
+    existing = {camel for camel, snake in _PROBE_KEYS.items()
+                if incident.current_spec.get(snake) is not None}
+    containers = patch.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
+    for container in containers:
+        for camel in _PROBE_KEYS:
+            if camel in container and camel not in existing:
+                del container[camel]
+                log.info("stripped invented probe %s", kv(workload=incident.workload_name, probe=camel))
+
+
 def diagnose(incident: Incident) -> Diagnosis:
     """Return a validated, safety-checked ``Diagnosis`` for the incident."""
     messages = [
@@ -81,6 +108,7 @@ def diagnose(incident: Incident) -> Diagnosis:
 
         try:
             diagnosis = Diagnosis.model_validate_json(content)
+            _strip_invented_probes(diagnosis.patch, incident)
             validate_patch(diagnosis.patch)
             return diagnosis
         except (ValidationError, json.JSONDecodeError, UnsafePatchError) as exc:

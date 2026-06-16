@@ -78,23 +78,46 @@ def _annotate_applied(workload_name: str, namespace: str, message: str) -> None:
         log.warning("annotate failed %s", kv(workload=workload_name, error=getattr(exc, "reason", exc)))
 
 
+_STABLE_POLLS = 3      # consecutive healthy readings required
+_POLL_INTERVAL = 3     # seconds between readings
+
+
 def _verify_rollout(workload_name: str, namespace: str, timeout: int) -> bool:
-    """True if the Deployment fully rolls out (all replicas updated & ready)."""
+    """True only if the Deployment is fully rolled out AND stays healthy for
+    several consecutive polls.
+
+    A single poll is not enough: a crash-looping container with no readiness
+    probe is briefly "ready" the instant it starts, so one reading can catch a
+    transient all-ready blip. We require sustained health and a rollout whose
+    status the controller has actually observed.
+    """
     deadline = time.time() + timeout
+    good = 0
     while time.time() < deadline:
         try:
             dep = apps_v1().read_namespaced_deployment(workload_name, namespace)
         except ApiException:
-            time.sleep(3)
+            good = 0
+            time.sleep(_POLL_INTERVAL)
             continue
+
         spec_replicas = dep.spec.replicas or 0
         st = dep.status
         ready = st.ready_replicas or 0
         updated = st.updated_replicas or 0
         available = st.available_replicas or 0
-        if spec_replicas and ready == updated == available == spec_replicas:
+        observed = st.observed_generation or 0
+        generation = dep.metadata.generation or 0
+
+        healthy = (
+            spec_replicas > 0
+            and observed >= generation
+            and ready == updated == available == spec_replicas
+        )
+        good = good + 1 if healthy else 0
+        if good >= _STABLE_POLLS:
             return True
-        time.sleep(3)
+        time.sleep(_POLL_INTERVAL)
     return False
 
 

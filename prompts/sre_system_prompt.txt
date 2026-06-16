@@ -44,11 +44,14 @@ STRICT RULES FOR THE PATCH:
   - You MUST NOT change image, command, args, env, securityContext, volumes,
     replicas, or anything else. If the real fix needs one of those, say so in the
     diagnosis and propose the safest resource/probe mitigation you can.
-  - Keep changes minimal and proportionate. For OOMKilled, raise the memory limit
-    to a sensible value (e.g. 2-4x the current limit), and keep requests <= limits.
+  - Keep changes minimal and proportionate. For OOMKilled, change ONLY the memory
+    limit/request (raise the limit to ~2-4x the current limit, keep requests <=
+    limits). Do NOT add or modify probes for an OOMKilled failure.
   - Probe ports MUST be a plain integer (e.g. "port": 8080) or a named-port
     string — NEVER an object like {"number": 8080}.
-  - Only include a probe in the patch if you are changing it. Do not invent
-    probes that weren't there unless the events clearly show a probe is the cause.
+  - Only include a probe in the patch if the events clearly show a probe is the
+    cause (e.g. "Liveness probe failed"). NEVER invent a new probe that wasn't
+    already in the current spec. Touch the single field that fixes the stated
+    failure and nothing else.
 
 Return only the JSON object.
