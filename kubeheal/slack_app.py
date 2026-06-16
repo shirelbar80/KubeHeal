@@ -136,6 +136,28 @@ def build_app() -> App:
     return app
 
 
+def post_unremediable(app: App, incident: Incident, detail: str) -> None:
+    """Notify the channel that KubeHeal detected a failure it can't safely fix
+    on its own (e.g. the cause is outside the resources/probes allow-list), so it
+    isn't silently dropped — a human can take it from here."""
+    app.client.chat_postMessage(
+        channel=settings.slack_channel,
+        text=f"{incident.reason.value} in {incident.workload_name} — needs human investigation",
+        blocks=[
+            {"type": "header",
+             "text": {"type": "plain_text", "text": f"🔧 Needs a human: {incident.workload_name}"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": (
+                f"*{incident.reason.value}* in `{incident.workload_kind}/{incident.workload_name}` "
+                f"(container `{incident.container_name}`).\n"
+                "KubeHeal could not generate a safe fix within its allowed scope "
+                "(resources + probes) — this likely needs a change it isn't allowed "
+                "to make (e.g. image, config, or command)."
+            )}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": detail[:300]}]},
+        ],
+    )
+
+
 def post_incident(app: App, incident: Incident, diagnosis: Diagnosis) -> str:
     """Create the pending approval and post the Block Kit alert. Returns its id."""
     approval_id = store.create_pending(incident, diagnosis)

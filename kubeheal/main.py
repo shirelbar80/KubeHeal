@@ -19,7 +19,7 @@ from . import observer, store
 from .brain import BrainError, diagnose
 from .logging_setup import configure, get_logger, kv
 from .models import Incident
-from .slack_app import build_app, post_incident
+from .slack_app import build_app, post_incident, post_unremediable
 
 log = get_logger("kubeheal.main")
 
@@ -54,6 +54,10 @@ def main() -> None:
         except BrainError as exc:
             log.error("brain failed %s", kv(workload=workload, error=exc))
             store.audit(None, workload, "diagnosis_failed", str(exc), actor="kubeheal")
+            try:
+                post_unremediable(app, incident, str(exc))
+            except Exception as post_exc:  # noqa: BLE001 - never let Slack errors crash the worker
+                log.error("failed to post unremediable notice %s", kv(workload=workload, error=post_exc))
             return
         approval_id = post_incident(app, incident, diagnosis)
         log.info("posted approval %s", kv(id=approval_id, workload=workload,
