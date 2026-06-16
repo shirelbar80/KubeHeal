@@ -60,3 +60,30 @@ def test_rejects_non_cpu_memory_resource_key():
 def test_rejects_empty_containers():
     with pytest.raises(UnsafePatchError):
         validate_patch({"spec": {"template": {"spec": {"containers": []}}}})
+
+
+def test_allows_valid_integer_probe_port():
+    validate_patch(
+        _patch({"name": "app", "livenessProbe": {"httpGet": {"path": "/", "port": 8080},
+                                                 "periodSeconds": 10}})
+    )
+
+
+def test_rejects_object_probe_port():
+    # This is exactly the malformed shape the 2B model emitted (caught pre-dry-run now).
+    with pytest.raises(UnsafePatchError):
+        validate_patch(
+            _patch({"name": "app", "livenessProbe": {"httpGet": {"port": {"number": 8080}}}})
+        )
+
+
+def test_rejects_probe_without_handler():
+    with pytest.raises(UnsafePatchError):
+        validate_patch(_patch({"name": "app", "readinessProbe": {"periodSeconds": 5}}))
+
+
+def test_rejects_unknown_probe_field():
+    with pytest.raises(UnsafePatchError):
+        validate_patch(
+            _patch({"name": "app", "livenessProbe": {"httpGet": {"port": 80}, "bogus": 1}})
+        )

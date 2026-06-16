@@ -30,6 +30,7 @@ class Incident(BaseModel):
     reason: FailureReason
     container_name: str
     logs: str = ""                       # last N lines (incl. previous container)
+    events: str = ""                     # recent Pod events (e.g. probe failures)
     current_spec: dict[str, Any] = Field(default_factory=dict)  # relevant container spec
 
 

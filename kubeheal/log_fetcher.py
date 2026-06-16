@@ -45,3 +45,27 @@ def fetch_logs(
             return text
 
     return "(no logs available)"
+
+
+def fetch_events(pod_name: str, namespace: str, limit: int = 10) -> str:
+    """Return recent Pod events (reason + message), most useful for failures
+    that don't appear in container logs — e.g. probe failures, scheduling. Never
+    raises."""
+    api = core_v1()
+    try:
+        resp = api.list_namespaced_event(
+            namespace=namespace,
+            field_selector=f"involvedObject.name={pod_name}",
+        )
+    except ApiException:
+        return ""
+
+    items = sorted(
+        resp.items,
+        key=lambda e: (e.last_timestamp or e.event_time or e.metadata.creation_timestamp),
+    )[-limit:]
+    lines = []
+    for e in items:
+        count = f" (x{e.count})" if e.count and e.count > 1 else ""
+        lines.append(f"{e.type} {e.reason}: {e.message}{count}")
+    return "\n".join(lines)

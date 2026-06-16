@@ -21,12 +21,19 @@ from kubernetes.client.exceptions import ApiException
 from config import settings
 
 from .k8s import apps_v1, core_v1
-from .log_fetcher import fetch_logs
+from .log_fetcher import fetch_events, fetch_logs
 from .models import FailureReason, Incident
 
-# Relevant container-spec fields we surface to the Brain (matches the safety
-# allow-list: resources + probes).
-_RELEVANT_SPEC_FIELDS = ("resources", "liveness_probe", "readiness_probe", "startup_probe")
+# Container-spec fields we surface to the Brain. resources + probes are the
+# patchable ones (safety allow-list); ports is read-only context that lets the
+# model spot a probe pointing at the wrong port.
+_RELEVANT_SPEC_FIELDS = (
+    "resources",
+    "liveness_probe",
+    "readiness_probe",
+    "startup_probe",
+    "ports",
+)
 
 IncidentHandler = Callable[[Incident], None]
 
@@ -105,6 +112,7 @@ def _build_incident(pod: Any, reason: FailureReason, container_name: str) -> Inc
         container=container_name,
         tail_lines=settings.log_tail_lines,
     )
+    events = fetch_events(pod.metadata.name, pod.metadata.namespace)
     return Incident(
         pod_name=pod.metadata.name,
         namespace=pod.metadata.namespace,
@@ -113,6 +121,7 @@ def _build_incident(pod: Any, reason: FailureReason, container_name: str) -> Inc
         reason=reason,
         container_name=container_name,
         logs=logs,
+        events=events,
         current_spec=_current_spec(name, pod.metadata.namespace, container_name),
     )
 
@@ -165,6 +174,7 @@ def _print_incident(incident: Incident) -> None:
     print(f"  reason   : {incident.reason.value}")
     print(f"  container: {incident.container_name}")
     print(f"  spec     : {incident.current_spec}")
+    print(f"  events   :\n{incident.events.rstrip() or '(none)'}")
     print(f"  logs     :\n{incident.logs.rstrip()}")
     print("================\n")
 

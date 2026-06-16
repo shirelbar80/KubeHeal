@@ -39,11 +39,24 @@ def _client() -> Client:
 
 
 def _incident_prompt(incident: Incident) -> str:
+    events = incident.events.strip() or "(no events)"
+    # Separate read-only context (ports) from the patchable spec so the model
+    # doesn't echo non-allowed fields like `ports` into its patch.
+    spec = dict(incident.current_spec)
+    ports = spec.pop("ports", None)
+    ports_line = (
+        f"Declared container ports (READ-ONLY context, never put in the patch): "
+        f"{json.dumps(ports)}\n"
+        if ports
+        else ""
+    )
     return (
         f"Failure reason: {incident.reason.value}\n"
         f"Deployment: {incident.workload_name}\n"
         f"Container: {incident.container_name}\n"
-        f"Current container spec:\n{json.dumps(incident.current_spec, indent=2)}\n\n"
+        f"{ports_line}"
+        f"Current patchable spec (resources + probes):\n{json.dumps(spec, indent=2)}\n\n"
+        f"Recent Pod events:\n{events}\n\n"
         f"Recent logs:\n{incident.logs.strip()}\n"
     )
 
