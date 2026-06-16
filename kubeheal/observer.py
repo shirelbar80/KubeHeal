@@ -20,9 +20,13 @@ from kubernetes.client.exceptions import ApiException
 
 from config import settings
 
+from . import store
 from .k8s import apps_v1, core_v1
 from .log_fetcher import fetch_events, fetch_logs
+from .logging_setup import get_logger, kv
 from .models import FailureReason, Incident
+
+log = get_logger("kubeheal.observer")
 
 # Container-spec fields we surface to the Brain. resources + probes are the
 # patchable ones (safety allow-list); ports is read-only context that lets the
@@ -134,9 +138,9 @@ def run(on_incident: IncidentHandler) -> None:
     api = core_v1()
     ns = settings.namespace
     cooldown = settings.cooldown_seconds
-    last_seen: dict[str, float] = {}
+    store.init_db()
 
-    print(f"[observer] watching namespace '{ns}' (cooldown={cooldown}s)")
+    log.info("watching %s", kv(namespace=ns, cooldown=cooldown))
     while True:
         w = watch.Watch()
         try:
@@ -154,14 +158,14 @@ def run(on_incident: IncidentHandler) -> None:
                         continue
 
                     key = f"{incident.workload_kind}/{incident.workload_name}"
-                    now = time.monotonic()
-                    if key in last_seen and (now - last_seen[key]) < cooldown:
-                        continue  # within cooldown — suppress storm
-                    last_seen[key] = now
+                    # SQLite-backed cooldown survives restarts and prevents storms.
+                    if not store.should_alert(key, cooldown):
+                        continue
 
+                    log.info("incident %s", kv(workload=key, reason=reason.value, pod=incident.pod_name))
                     on_incident(incident)
         except ApiException as exc:
-            print(f"[observer] watch error: {exc}; reconnecting...")
+            log.warning("watch error %s", kv(error=getattr(exc, "reason", exc)))
             time.sleep(2)
         finally:
             w.stop()

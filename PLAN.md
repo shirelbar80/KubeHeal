@@ -207,12 +207,14 @@ KubeHeal/
 
 ### Phase 4 — Hardening & polish (stretch)
 
-- [ ] Cooldown/dedup moved fully into SQLite with TTL.
-- [ ] "KubeHeal-applied" annotation on patched workloads to avoid re-triggering on its own changes.
-- [ ] Structured logging (`structlog` or stdlib JSON logs).
-- [ ] Unit tests: safety allow-list, brain JSON parsing/validation, owner resolution.
-- [ ] README with full setup, Slack manifest, demo GIF/screenshots.
-- [ ] Dockerfile + optional in-cluster deployment manifest (run KubeHeal _inside_ the cluster with the RBAC SA).
+- [x] Cooldown/dedup moved fully into SQLite (`workload_cooldown` table; survives restarts).
+- [x] "KubeHeal-applied" annotation on patched workloads (`kubeheal.io/last-remediation` on Deployment metadata — no extra rollout).
+- [x] Structured logging (`kubeheal/logging_setup.py`; `ts level logger | key=value`).
+- [x] Unit tests: safety allow-list + probe validation, Diagnosis parsing (17 passing). _(owner resolution covered via live runs.)_
+- [x] README with full setup + Slack manifest. _(Demo GIF/screenshots optional.)_
+- [x] Dockerfile + optional in-cluster deployment manifest (`deploy/kubeheal-deployment.yaml`, runs with the RBAC SA). _Ollama connectivity from in-cluster is environment-specific; local run remains recommended._
+
+**Also added (beyond original Phase 4):** Pod events in the incident context (so probe/scheduling failures are diagnosable), and a genuinely-fixable `badprobe-demo` (wrong liveness port) showcasing approve-and-heal beyond OOM.
 
 ---
 

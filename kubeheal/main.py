@@ -17,8 +17,11 @@ from config import settings
 
 from . import observer, store
 from .brain import BrainError, diagnose
+from .logging_setup import configure, get_logger, kv
 from .models import Incident
 from .slack_app import build_app, post_incident
+
+log = get_logger("kubeheal.main")
 
 
 def _require_config() -> None:
@@ -36,23 +39,25 @@ def _require_config() -> None:
 
 
 def main() -> None:
+    configure()
     _require_config()
     store.init_db()
     app = build_app()
 
-    print(f"[kubeheal] namespace={settings.namespace} model={settings.ollama_model} "
-          f"channel={settings.slack_channel}")
+    log.info("starting %s", kv(namespace=settings.namespace, model=settings.ollama_model,
+                               channel=settings.slack_channel))
 
     def process(incident: Incident) -> None:
+        workload = f"{incident.workload_kind}/{incident.workload_name}"
         try:
             diagnosis = diagnose(incident)
         except BrainError as exc:
-            print(f"[kubeheal] brain failed for {incident.workload_name}: {exc}")
-            store.audit(None, f"{incident.workload_kind}/{incident.workload_name}",
-                        "diagnosis_failed", str(exc), actor="kubeheal")
+            log.error("brain failed %s", kv(workload=workload, error=exc))
+            store.audit(None, workload, "diagnosis_failed", str(exc), actor="kubeheal")
             return
         approval_id = post_incident(app, incident, diagnosis)
-        print(f"[kubeheal] posted approval {approval_id} for {incident.workload_name}")
+        log.info("posted approval %s", kv(id=approval_id, workload=workload,
+                                          confidence=f"{diagnosis.confidence:.2f}"))
 
     def on_incident(incident: Incident) -> None:
         threading.Thread(target=process, args=(incident,), daemon=True).start()
@@ -60,7 +65,7 @@ def main() -> None:
     obs = threading.Thread(target=observer.run, args=(on_incident,), daemon=True)
     obs.start()
 
-    print("[kubeheal] starting Slack Socket Mode handler…")
+    log.info("starting Slack Socket Mode handler")
     SocketModeHandler(app, settings.slack_app_token).start()
 
 

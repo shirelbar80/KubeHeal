@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from kubernetes.client.exceptions import ApiException
@@ -18,9 +19,11 @@ from kubernetes.client.exceptions import ApiException
 from config import settings
 
 from .k8s import apps_v1, core_v1
+from .logging_setup import get_logger, kv
 from .safety import ALLOWED_FIELDS
 
 _STRATEGIC_MERGE = "application/strategic-merge-patch+json"
+log = get_logger("kubeheal.remediator")
 
 
 @dataclass
@@ -56,6 +59,23 @@ def _patch(workload_name: str, namespace: str, body: dict[str, Any], dry_run: bo
     if dry_run:
         kwargs["dry_run"] = "All"
     apps_v1().patch_namespaced_deployment(workload_name, namespace, body, **kwargs)
+
+
+def _annotate_applied(workload_name: str, namespace: str, message: str) -> None:
+    """Record on the Deployment that KubeHeal remediated it (metadata only, so it
+    does not trigger another rollout). Best-effort."""
+    body = {
+        "metadata": {
+            "annotations": {
+                "kubeheal.io/last-remediation": datetime.now(timezone.utc).isoformat(),
+                "kubeheal.io/last-message": message[:200],
+            }
+        }
+    }
+    try:
+        _patch(workload_name, namespace, body, dry_run=False)
+    except ApiException as exc:
+        log.warning("annotate failed %s", kv(workload=workload_name, error=getattr(exc, "reason", exc)))
 
 
 def _verify_rollout(workload_name: str, namespace: str, timeout: int) -> bool:
@@ -107,6 +127,8 @@ def apply_patch(
 
     # 4. Verify the rollout recovers.
     if _verify_rollout(workload_name, namespace, settings.verify_timeout_seconds):
+        _annotate_applied(workload_name, namespace, "patch applied; workload healthy")
+        log.info("healed %s", kv(workload=workload_name))
         return RemediationResult(ok=True, message="patch applied; workload healthy")
 
     # 5. Recovery failed -> roll back.

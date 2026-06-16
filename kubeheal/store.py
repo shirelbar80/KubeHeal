@@ -63,8 +63,34 @@ def init_db() -> None:
                 actor       TEXT,
                 created_at  TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS workload_cooldown (
+                workload_key    TEXT PRIMARY KEY,
+                last_alerted_at TEXT NOT NULL
+            );
             """
         )
+
+
+def should_alert(workload_key: str, cooldown_seconds: int) -> bool:
+    """Return True and record the time if this workload is outside its cooldown
+    window; False (suppress) if it alerted too recently. Survives restarts."""
+    now = datetime.now(timezone.utc)
+    with _conn() as c:
+        row = c.execute(
+            "SELECT last_alerted_at FROM workload_cooldown WHERE workload_key = ?",
+            (workload_key,),
+        ).fetchone()
+        if row:
+            last = datetime.fromisoformat(row["last_alerted_at"])
+            if (now - last).total_seconds() < cooldown_seconds:
+                return False
+        c.execute(
+            "INSERT INTO workload_cooldown (workload_key, last_alerted_at) VALUES (?, ?) "
+            "ON CONFLICT(workload_key) DO UPDATE SET last_alerted_at = excluded.last_alerted_at",
+            (workload_key, now.isoformat()),
+        )
+    return True
 
 
 def create_pending(incident: Incident, diagnosis: Diagnosis) -> str:

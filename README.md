@@ -16,10 +16,12 @@ See [PLAN.md](PLAN.md) for the full design, decisions, and phased task breakdown
 
 ## Status
 
-✅ **Phases 1–3 code complete.** Full pipeline: detect → diagnose (local LLM) →
-Slack Approve/Reject → dry-run → apply → verify → rollback, with a SQLite audit
-trail. The detect/diagnose/remediate chain is verified live against Kind; the
-only step awaiting the user is plugging in Slack tokens for the live button test.
+✅ **Phases 1–4 complete & verified live (incl. a real Slack approve→heal).** Full
+pipeline: detect (with Pod events) → diagnose (local LLM) → Slack Approve/Reject →
+dry-run → apply → verify → rollback, with SQLite-backed cooldown + audit trail,
+structured logging, a `kubeheal.io/last-remediation` annotation, and an optional
+in-cluster Dockerfile/manifest. Demos: OOMKilled, CrashLoopBackOff (config — not
+auto-fixable), and a fixable bad-liveness-probe.
 
 ## Tech stack
 
