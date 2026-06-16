@@ -1,0 +1,105 @@
+# Demo workloads that deliberately fail, for exercising KubeHeal end-to-end.
+# Both live in the kubeheal-demo namespace.
+#
+#   kubectl apply -f deploy/crashloop-demo.yaml
+#
+# - oom-demo:       allocates 20MB against a 10Mi limit         -> OOMKilled
+# - crashloop-demo: exits 1 on startup (missing config)         -> CrashLoopBackOff (NOT fixable by resources/probes)
+# - badprobe-demo:  nginx (serves :80) with liveness probe on :8080 -> CrashLoopBackOff (GENUINELY fixable: correct the probe port)
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oom-demo
+  namespace: kubeheal-demo
+  labels: { app: oom-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: oom-demo }
+  template:
+    metadata:
+      labels: { app: oom-demo }
+    spec:
+      containers:
+        - name: hog
+          image: python:3.11-alpine
+          # Allocate 20MB, then idle. With a 10Mi limit the kernel OOM-kills it;
+          # a sensible bump (the LLM proposes ~40Mi) comfortably fits ~30MB RSS.
+          command: ["python", "-c"]
+          args:
+            - |
+              import time
+              print("oom-demo starting; allocating memory", flush=True)
+              blob = bytearray(20 * 1024 * 1024)
+              print("allocated 20MB", flush=True)
+              time.sleep(3600)
+          resources:
+            limits:
+              memory: "10Mi"
+            requests:
+              memory: "10Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: crashloop-demo
+  namespace: kubeheal-demo
+  labels: { app: crashloop-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: crashloop-demo }
+  template:
+    metadata:
+      labels: { app: crashloop-demo }
+    spec:
+      containers:
+        - name: boom
+          image: busybox:1.36
+          command: ["sh", "-c"]
+          args:
+            - |
+              echo "crashloop-demo starting"
+              echo "FATAL: required config /etc/app/config.yaml not found" >&2
+              exit 1
+          resources:
+            limits:
+              memory: "32Mi"
+            requests:
+              memory: "16Mi"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: badprobe-demo
+  namespace: kubeheal-demo
+  labels: { app: badprobe-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: badprobe-demo }
+  template:
+    metadata:
+      labels: { app: badprobe-demo }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine   # serves HTTP on port 80
+          ports:
+            - containerPort: 80
+          # BUG: liveness probe points at 8080, but nginx listens on 80.
+          # The probe fails, kubelet keeps killing the container -> CrashLoopBackOff.
+          # Fix = correct the probe port to 80 (within the resources+probes allow-list).
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            limits:
+              memory: "64Mi"
+            requests:
+              memory: "32Mi"

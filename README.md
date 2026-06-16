@@ -16,14 +16,18 @@ See [PLAN.md](PLAN.md) for the full design, decisions, and phased task breakdown
 
 ## Status
 
-🚧 **Phase 0 — scaffolding.** Components are stubbed; implementation proceeds
-Phase 1 (Observer) → Phase 2 (Brain) → Phase 3 (Slack ChatOps).
+✅ **Phases 1–4 complete & verified live (incl. a real Slack approve→heal).** Full
+pipeline: detect (with Pod events) → diagnose (local LLM) → Slack Approve/Reject →
+dry-run → apply → verify → rollback, with SQLite-backed cooldown + audit trail,
+structured logging, a `kubeheal.io/last-remediation` annotation, and an optional
+in-cluster Dockerfile/manifest. Demos: OOMKilled, CrashLoopBackOff (config — not
+auto-fixable), and a fixable bad-liveness-probe.
 
 ## Tech stack
 
 - Python 3.10+ (use the `py` launcher on Windows)
 - Local cluster: **Kind**
-- Local LLM: **Ollama** running `granite3.1-dense:3b`
+- Local LLM: **Ollama** running `granite3.1-dense:2b`
 - ChatOps: **Slack** via `slack-bolt` in **Socket Mode** (no ngrok)
 - K8s access: official `kubernetes` Python client
 - State: SQLite
@@ -50,14 +54,31 @@ pip install -r requirements.txt
 kind create cluster --name kubeheal
 
 # 3. Local LLM
-ollama pull granite3.1-dense:3b
+ollama pull granite3.1-dense:2b
 
 # 4. Config
 copy .env.example .env   # then fill in Slack tokens + channel
 
-# 5. Run (once implemented)
+# 5. Run
 py -m kubeheal.main
 ```
+
+## Slack setup
+
+1. Create the app from [`deploy/slack-manifest.yaml`](deploy/slack-manifest.yaml):
+   **https://api.slack.com/apps → Create New App → From a manifest**, pick your
+   workspace, paste the YAML, Create.
+2. **Install App → Install to Workspace → Allow.**
+3. Collect the two tokens into `.env`:
+   - **Bot User OAuth Token** (`xoxb-…`) from *OAuth & Permissions* → `SLACK_BOT_TOKEN`
+   - **App-Level Token** (`xapp-…`) from *Basic Information → App-Level Tokens*
+     (create one with the `connections:write` scope) → `SLACK_APP_TOKEN`
+4. Invite the bot to your channel: `/invite @KubeHeal` in `#all-kubeheal-dev`.
+5. `py -m kubeheal.main`, then break a demo workload:
+   `kubectl apply -f deploy/crashloop-demo.yaml`.
+
+Socket Mode means **no public URL / ngrok** is needed — button clicks arrive over
+an outbound WebSocket.
 
 ## Safety model
 

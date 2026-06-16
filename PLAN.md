@@ -23,7 +23,7 @@ A daemon that:
 | Topic | Decision |
 | --- | --- |
 | Local cluster tool | **Kind** (Kubernetes in Docker) |
-| LLM model | **`granite3.1-dense:3b`** via Ollama (swappable; 8B optional but slower on 4 GB VRAM) |
+| LLM model | **`granite3.1-dense:2b`** via Ollama (swappable; 8B optional but slower on 4 GB VRAM) |
 | Slack transport | **Socket Mode** (no ngrok) |
 | Patch allow-list | **`resources` (limits/requests) + probes only** |
 | Human approval | **Always required** — no auto-approve, ever |
@@ -149,69 +149,72 @@ KubeHeal/
 
 ### Phase 0 — Project bootstrap (½ day)
 
-- [ ] Create repo layout above; `git init`.
-- [ ] `requirements.txt`: `kubernetes`, `slack_bolt`, `ollama` (or `openai`), `pydantic-settings`, `fastapi`, `uvicorn`, `pytest`.
-- [ ] `.env.example` with all config keys (Slack tokens, model name, namespace, cooldown).
-- [ ] `config.py` loads settings via pydantic.
-- [ ] README skeleton.
+- [x] Create repo layout above; `git init`.
+- [x] `requirements.txt`: `kubernetes`, `slack_bolt`, `ollama` (or `openai`), `pydantic-settings`, `fastapi`, `uvicorn`, `pytest`.
+- [x] `.env.example` with all config keys (Slack tokens, model name, namespace, cooldown).
+- [x] `config.py` loads settings via pydantic.
+- [x] README skeleton.
 
 ### Phase 1 — Cluster observation & infra (Day 1)
 
-- [ ] Spin up local cluster (`kind create cluster` or `minikube start`).
-- [ ] Write `deploy/crashloop-demo.yaml`: a pod that OOMKills (e.g. tight `resources.limits.memory: 10Mi` + a process that allocates more) **and** a second demo that `CrashLoopBackOff`s (bad command/exit 1) for variety.
-- [ ] Write `deploy/rbac.yaml`: ServiceAccount + Role limited to `get/list/watch pods`, `get pods/log`, and `patch deployments` in one namespace. (Use this even when running locally with kubeconfig — document the least-privilege intent.)
-- [ ] `observer.py`: `watch.Watch().stream(v1.list_namespaced_pod, ...)`.
-- [ ] **Failure detection** from `pod.status.container_statuses`:
+- [x] Spin up local cluster (`kind create cluster` or `minikube start`). — Kind cluster `kubeheal`, namespace `kubeheal-demo`.
+- [x] Write `deploy/crashloop-demo.yaml`: a pod that OOMKills (e.g. tight `resources.limits.memory: 10Mi` + a process that allocates more) **and** a second demo that `CrashLoopBackOff`s (bad command/exit 1) for variety.
+- [x] Write `deploy/rbac.yaml`: ServiceAccount + Role limited to `get/list/watch pods`, `get pods/log`, and `patch deployments` in one namespace. (Use this even when running locally with kubeconfig — document the least-privilege intent.)
+- [x] `observer.py`: `watch.Watch().stream(v1.list_namespaced_pod, ...)`.
+- [x] **Failure detection** from `pod.status.container_statuses`:
   - `state.waiting.reason == "CrashLoopBackOff"`
   - `state.terminated.reason == "OOMKilled"`
   - `last_state.terminated.reason == "OOMKilled"` (catch already-restarted)
-- [ ] `log_fetcher.py`: last 50 lines via `read_namespaced_pod_log(..., tail_lines=50)`; also fetch `previous=True` logs (the crashed container's logs are usually in the _previous_ instance).
-- [ ] Map a pod back to its **owner** (ReplicaSet → Deployment) so patches target the Deployment, not the ephemeral pod.
-- [ ] **Dedup + cooldown**: in-memory (then SQLite) keyed by owner workload; ignore repeat events within N minutes.
-- [ ] Manual test: deploy demo, confirm exactly one detection per workload with logs printed.
+- [x] `log_fetcher.py`: last 50 lines via `read_namespaced_pod_log(..., tail_lines=50)`; also fetch `previous=True` logs (the crashed container's logs are usually in the _previous_ instance). _Note: client mis-deserializes the log endpoint with `_preload_content=True` (returns the `repr` of bytes) — fixed by reading the raw response and decoding._
+- [x] Map a pod back to its **owner** (ReplicaSet → Deployment) so patches target the Deployment, not the ephemeral pod.
+- [x] **Dedup + cooldown**: in-memory (then SQLite) keyed by owner workload; ignore repeat events within N minutes.
+- [x] Manual test: deploy demo, confirm exactly one detection per workload with logs printed.
 
-**Phase 1 done when:** crashing a demo pod prints a single structured `Incident` (workload, reason, logs) to console.
+**Phase 1 done when:** crashing a demo pod prints a single structured `Incident` (workload, reason, logs) to console. ✅ **DONE & VERIFIED** — both `OOMKilled` and `CrashLoopBackOff` detected with correct workload, spec, and decoded logs.
 
 ### Phase 2 — Local AI brain (Day 2)
 
-- [ ] Install Ollama; pull model (`ollama pull granite3.1-dense:2b` or `llama3.1:8b`).
-- [ ] `prompts/sre_system_prompt.txt`: strict SRE prompt — _"Analyze logs + current spec. Output JSON only: `{diagnosis, root_cause, confidence, patch:{...}, patch_explanation}`. The patch must be a valid K8s strategic-merge patch for the named Deployment. Do not invent fields."_
-- [ ] `brain.py`:
-  - Send system prompt + incident (logs, reason, **current resource spec**) to Ollama with `format=json`.
-  - **Validate** the returned JSON against a pydantic schema (`Diagnosis`/`Patch`).
-  - On invalid JSON → one retry with a "your last output was invalid JSON, fix it" message; then fail gracefully.
-- [ ] `safety.py`: enforce a **patch allow-list** — only permit mutations to a known-safe set of fields (e.g. `resources.limits/requests`, `livenessProbe`, `readinessProbe`, env values, replica count within bounds). Reject anything touching `image` to arbitrary registries, `securityContext` escalations, hostPath volumes, etc. **(see open question Q4)**
-- [ ] Wire Observer → Brain: on incident, fetch logs, call brain, print diagnosis + validated patch.
+- [x] Install Ollama; pull model (`ollama pull granite3.1-dense:2b` or `llama3.1:8b`).
+- [x] `prompts/sre_system_prompt.txt`: strict SRE prompt — _"Analyze logs + current spec. Output JSON only: `{diagnosis, root_cause, confidence, patch:{...}, patch_explanation}`. The patch must be a valid K8s strategic-merge patch for the named Deployment. Do not invent fields."_
+- [x] `brain.py`:
+  - Send system prompt + incident (logs, reason, **current resource spec**) to Ollama, constraining output to the `Diagnosis` JSON **schema** (stronger than plain `format=json`).
+  - **Validate** the returned JSON against the `Diagnosis` pydantic schema.
+  - On invalid JSON / schema / unsafe patch → feed the error back and retry (up to 3 attempts); then raise `BrainError`.
+- [x] `safety.py`: enforce a **patch allow-list** — per Q4, ONLY `resources` (limits/requests, cpu/memory) and probes (liveness/readiness/startup). Rejects image, command, env, securityContext, volumes, replicas, extra keys.
+- [x] Wire Observer → Brain: on incident, fetch logs, call brain, print diagnosis + validated patch.
 
-**Phase 2 done when:** an OOMKilled demo yields a valid JSON patch that bumps the memory limit, and a deliberately-broken model response is rejected by the validator.
+**Phase 2 done when:** an OOMKilled demo yields a valid JSON patch that bumps the memory limit, and a deliberately-broken model response is rejected by the validator. ✅ **DONE & VERIFIED** — live OOMKilled diagnosis bumped memory `10Mi → 40Mi`; CrashLoopBackOff correctly identified as a config issue with a within-allow-list mitigation; 13 unit tests pass (safety allow-list + Diagnosis parsing).
 
 ### Phase 3 — Interactive ChatOps via Slack (Day 3)
 
-- [ ] Create a Slack app (manifest provided in README). Scopes: `chat:write`, `commands`, plus enable **Socket Mode** (App-Level Token `xapp-…`) and **Interactivity**.
-- [ ] `slack_app.py` (Bolt, Socket Mode):
-  - Block Kit message: diagnosis, confidence, a **rendered diff/patch** in a code block, and **Approve / Reject** buttons (+ optional "Edit" that opens a modal or accepts a thread reply).
-  - Action handler `approve_patch` → look up pending incident in store → call remediator.
+- [x] Create a Slack app (manifest at `deploy/slack-manifest.yaml`). Scope `chat:write`, **Socket Mode** (App-Level Token `xapp-…`) and **Interactivity** enabled. _(User action: create app from manifest + paste tokens into `.env`.)_
+- [x] `slack_app.py` (Bolt, Socket Mode):
+  - Block Kit message: diagnosis, confidence, root cause, the **rendered patch** in a code block, and **Approve / Reject** buttons.
+  - Action handler `approve_patch` → look up pending incident in store → call remediator → update message with outcome.
   - Action handler `reject_patch` → mark rejected, update message.
   - **Text override — DEFERRED (Phase 3 stretch, to be done LATER):** _not part of the MVP._ The MVP ships with Approve/Reject buttons only. Once those work end-to-end, this feature will be added later: listen for thread replies / `message` events; pass user text + original incident back to `brain.py` to _rewrite_ the patch, then post the new patch for re-approval.
-- [ ] `store.py` (SQLite): `pending_approvals(id, workload, patch_json, status, created_at)` + `audit_log(...)`. Persist on alert; update on action.
-- [ ] `remediator.py`:
-  - **dry-run first**: `patch_namespaced_deployment(..., dry_run="All")` → if it errors, report back to Slack, don't apply.
-  - Apply for real; record in audit log.
-  - **Verify recovery**: watch the workload for ~N seconds; report success/failure back to the Slack thread.
-  - **Rollback hook**: keep the previous spec; offer a rollback button if recovery fails.
-- [ ] `main.py`: start observer (thread/async task) + Slack Socket Mode app together; graceful shutdown.
-- [ ] FastAPI (optional): `/healthz`, `/metrics` only.
+- [x] `store.py` (SQLite): `pending_approvals(...)` + `audit_log(...)`. Persist on alert; update on action. Verified.
+- [x] `remediator.py`:
+  - **dry-run first**: `patch_namespaced_deployment(..., dry_run="All")` → if it errors, report back, don't apply.
+  - Apply for real (strategic-merge patch); record in audit log.
+  - **Verify recovery**: poll the Deployment rollout for ~N seconds; report success/failure.
+  - **Rollback**: capture the previous spec and restore it if recovery fails. _Verified live: OOM fix applied, pod recovered 1/1._
+- [x] `main.py`: start observer (background thread) + Slack Socket Mode app (main thread); per-incident worker threads so a slow LLM call never blocks the watch.
+- [ ] FastAPI (optional): `/healthz`, `/metrics` only. _(Deferred — not needed for MVP with Socket Mode.)_
 
 **Phase 3 done when (MVP):** crashing the demo → Slack alert → click Approve → patch applied via dry-run-then-real → pod recovers → success posted in thread. Reject path also works. (Text-override is **explicitly out of MVP scope — added later** as a stretch.)
+→ **Code complete & locally verified** (detect→diagnose→dry-run→apply→verify→rollback, store, message build/update logic). **Remaining: the live Slack click test**, which needs the user's `SLACK_BOT_TOKEN` + `SLACK_APP_TOKEN` in `.env`.
 
 ### Phase 4 — Hardening & polish (stretch)
 
-- [ ] Cooldown/dedup moved fully into SQLite with TTL.
-- [ ] "KubeHeal-applied" annotation on patched workloads to avoid re-triggering on its own changes.
-- [ ] Structured logging (`structlog` or stdlib JSON logs).
-- [ ] Unit tests: safety allow-list, brain JSON parsing/validation, owner resolution.
-- [ ] README with full setup, Slack manifest, demo GIF/screenshots.
-- [ ] Dockerfile + optional in-cluster deployment manifest (run KubeHeal _inside_ the cluster with the RBAC SA).
+- [x] Cooldown/dedup moved fully into SQLite (`workload_cooldown` table; survives restarts).
+- [x] "KubeHeal-applied" annotation on patched workloads (`kubeheal.io/last-remediation` on Deployment metadata — no extra rollout).
+- [x] Structured logging (`kubeheal/logging_setup.py`; `ts level logger | key=value`).
+- [x] Unit tests: safety allow-list + probe validation, Diagnosis parsing (17 passing). _(owner resolution covered via live runs.)_
+- [x] README with full setup + Slack manifest. _(Demo GIF/screenshots optional.)_
+- [x] Dockerfile + optional in-cluster deployment manifest (`deploy/kubeheal-deployment.yaml`, runs with the RBAC SA). _Ollama connectivity from in-cluster is environment-specific; local run remains recommended._
+
+**Also added (beyond original Phase 4):** Pod events in the incident context (so probe/scheduling failures are diagnosable), and a genuinely-fixable `badprobe-demo` (wrong liveness port) showcasing approve-and-heal beyond OOM.
 
 ---
 

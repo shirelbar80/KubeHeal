@@ -1,0 +1,53 @@
+# Optional: run KubeHeal INSIDE the cluster (Phase 4 stretch).
+#
+# Prereqs:
+#   1. Build & load the image into kind:
+#        docker build -t kubeheal:dev .
+#        kind load docker-image kubeheal:dev --name kubeheal
+#   2. Create the Slack secret (do NOT commit real tokens):
+#        kubectl -n kubeheal-demo create secret generic kubeheal-slack \
+#          --from-literal=SLACK_BOT_TOKEN=xoxb-... \
+#          --from-literal=SLACK_APP_TOKEN=xapp-...
+#   3. kubectl apply -f deploy/rbac.yaml -f deploy/kubeheal-deployment.yaml
+#
+# OLLAMA NOTE: Ollama runs on your host, not in the cluster. From a kind pod the
+# host is reachable at the node's gateway. The simplest path is to expose Ollama
+# and point OLLAMA_HOST at a host-reachable address (e.g. http://host.docker.internal:11434
+# on Docker Desktop, or the kind node gateway IP). This is environment-specific —
+# running locally with `py -m kubeheal.main` remains the recommended path for now.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubeheal
+  namespace: kubeheal-demo
+  labels: { app: kubeheal }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kubeheal }
+  template:
+    metadata:
+      labels: { app: kubeheal }
+    spec:
+      serviceAccountName: kubeheal        # least-privilege Role from rbac.yaml
+      containers:
+        - name: kubeheal
+          image: kubeheal:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: KUBEHEAL_NAMESPACE
+              value: kubeheal-demo
+            - name: SLACK_CHANNEL
+              value: "#all-kubeheal-dev"
+            - name: OLLAMA_HOST
+              value: "http://host.docker.internal:11434"   # adjust to your setup
+            - name: OLLAMA_MODEL
+              value: granite3.1-dense:2b
+          envFrom:
+            - secretRef:
+                name: kubeheal-slack       # SLACK_BOT_TOKEN, SLACK_APP_TOKEN
+          resources:
+            limits:
+              memory: "256Mi"
+            requests:
+              memory: "128Mi"

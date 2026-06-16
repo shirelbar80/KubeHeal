@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     # --- Local LLM (Ollama) ---
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "granite3.1-dense:3b"
+    ollama_model: str = "granite3.1-dense:2b"
 
     # --- Slack ---
     slack_bot_token: str = ""
@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     cooldown_seconds: int = 300
     log_tail_lines: int = 50
     verify_timeout_seconds: int = 120
+
+    # --- State ---
+    db_path: str = "kubeheal.sqlite"
 
     # --- Optional internal API ---
     health_port: int = 8000
