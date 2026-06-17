@@ -94,6 +94,27 @@ def build_app() -> App:
             ),
         )
 
+    @app.action("acknowledge_incident")
+    def on_acknowledge(ack, body, client):  # noqa: ANN001
+        ack()
+        incident_id = body["actions"][0]["value"]
+        user = body.get("user", {}).get("username") or body.get("user", {}).get("id", "unknown")
+        row = store.get_pending(incident_id)
+        if not row or row["status"] != ApprovalStatus.NEEDS_HUMAN.value:
+            return
+        store.update_status(incident_id, ApprovalStatus.ACKNOWLEDGED)
+        store.audit(incident_id, f"{row['workload_kind']}/{row['workload_name']}", "acknowledged", actor=user)
+        client.chat_update(
+            channel=body["channel"]["id"],
+            ts=body["message"]["ts"],
+            text="Acknowledged",
+            blocks=_resolved_blocks(
+                f"👍 Acknowledged: {row['workload_name']}",
+                [f"Acknowledged by <@{body['user']['id']}> — needs manual follow-up. "
+                 "KubeHeal will stop reminding about this one."],
+            ),
+        )
+
     @app.action("approve_patch")
     def on_approve(ack, body, client):  # noqa: ANN001
         ack()
@@ -136,11 +157,33 @@ def build_app() -> App:
     return app
 
 
-def post_unremediable(app: App, incident: Incident, detail: str) -> None:
-    """Notify the channel that KubeHeal detected a failure it can't safely fix
-    on its own (e.g. the cause is outside the resources/probes allow-list), so it
-    isn't silently dropped — a human can take it from here."""
+def post_reminder(app: App, row: dict) -> None:
+    """Nudge an unresolved incident as a threaded reply to the original alert,
+    broadcast to the channel so it resurfaces. The buttons stay on the original
+    message — this is just a reminder, not a new alert."""
+    workload = f"`{row['workload_kind']}/{row['workload_name']}` ({row['reason']})"
+    if row["status"] == ApprovalStatus.NEEDS_HUMAN.value:
+        text = (f"⏰ *Still needs a human* for {workload}.\n"
+                "KubeHeal can't fix this within its allowed scope — please "
+                "investigate and *Acknowledge* the alert above.")
+    else:
+        text = (f"⏰ *Still awaiting approval* for {workload}.\n"
+                "Please *Approve* or *Reject* the alert above — nothing has been applied yet.")
     app.client.chat_postMessage(
+        channel=row["slack_channel"],
+        thread_ts=row["slack_ts"],
+        reply_broadcast=True,
+        text=f"Reminder: {row['workload_name']}",
+        blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+    )
+
+
+def post_unremediable(app: App, incident: Incident, detail: str) -> str:
+    """Record + post that KubeHeal detected a failure it can't safely fix on its
+    own. Tracked like an approval (deduped + reminded) but resolved by an
+    Acknowledge button instead of Approve/Reject. Returns the incident id."""
+    incident_id = store.create_needs_human(incident, detail)
+    resp = app.client.chat_postMessage(
         channel=settings.slack_channel,
         text=f"{incident.reason.value} in {incident.workload_name} — needs human investigation",
         blocks=[
@@ -153,9 +196,17 @@ def post_unremediable(app: App, incident: Incident, detail: str) -> None:
                 "(resources + probes) — this likely needs a change it isn't allowed "
                 "to make (e.g. image, config, or command)."
             )}},
-            {"type": "context", "elements": [{"type": "mrkdwn", "text": detail[:300]}]},
+            {"type": "actions", "block_id": "kubeheal_ack", "elements": [
+                {"type": "button",
+                 "text": {"type": "plain_text", "text": "✓ Acknowledge"},
+                 "action_id": "acknowledge_incident",
+                 "value": incident_id},
+            ]},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"id: `{incident_id}`"}]},
         ],
     )
+    store.set_slack_ref(incident_id, resp["channel"], resp["ts"])
+    return incident_id
 
 
 def post_incident(app: App, incident: Incident, diagnosis: Diagnosis) -> str:
