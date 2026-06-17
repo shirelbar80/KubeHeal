@@ -150,8 +150,16 @@ sees the proposal.
 ## Key design decisions & trade-offs
 
 1. **Local LLM (Ollama), not a hosted API.** Data privacy — pod logs never leave
-   the machine — and zero cost. Trade-off: a small 2B model is weaker, so we
-   compensate with structure (schema, allow-list, explicit prompt heuristics).
+   the machine — and zero cost. The deliberate trade-off: the default model
+   (`granite3.1-dense:2b`) is small and **weak**, so it can't always *infer* the
+   right fix on its own. We compensate with structure — forced JSON schema, the
+   safety allow-list, **case-specific decision rules in the system prompt** (e.g.
+   "wrong probe port" vs "slow start"), and **deterministic fixes in code** for
+   the cases the model handles unreliably (slow-start `startupProbe`, rollback).
+   A stronger model would need fewer of those hints; the model is swappable in
+   one line — set `OLLAMA_MODEL` (e.g. `llama3.1:8b` or a larger Granite) — at the
+   cost of more RAM/VRAM and slower inference. So the prompt's specificity is a
+   property of *this* model choice, not the design.
 2. **Slack Socket Mode, not webhooks + ngrok.** An outbound WebSocket needs no
    public URL, tunnel, or rotating-URL setup. Simpler and free.
 3. **Event-driven Watch, not polling.** K8s pushes state changes; we react

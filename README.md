@@ -103,11 +103,39 @@ KubeHeal is built so that even a wrong diagnosis can't do harm:
 
 ---
 
+## Design note: model choice (and why the prompt explains specific cases)
+
+KubeHeal deliberately runs on a **small, free, local model** —
+`granite3.1-dense:2b` via Ollama — for **privacy** (pod logs never leave the
+machine) and **zero cost**. That choice has a real trade-off: a 2B model often
+**can't infer the right fix on its own**, so the system prompt
+([`prompts/sre_system_prompt.txt`](prompts/sre_system_prompt.txt)) includes
+**case-specific decision rules** (e.g. *wrong probe port* vs *slow start*), and
+the trickiest fixes are computed **deterministically in code** rather than left to
+the model (the slow-start `startupProbe` and the rollback). In short: we trade some
+of the model's "figure it out yourself" generality for **reliability and safety**
+with a weak local model.
+
+That specificity is a property of the *model*, not the design — **the model is
+swappable in one line.** Point it at a bigger, smarter model and you can lean on
+its own reasoning (and trim the case rules):
+
+```bash
+ollama pull llama3.1:8b
+# then set OLLAMA_MODEL in .env
+OLLAMA_MODEL=llama3.1:8b
+```
+
+A larger model (e.g. `llama3.1:8b`, or a bigger Granite) generally needs fewer
+hand-written rules — at the cost of more RAM/VRAM and slower inference. Everything
+else (safety allow-list, dry-run, verify, rollback, human approval) stays exactly
+the same regardless of model.
+
 ## Tech stack
 
 Python · official `kubernetes` client (watch + patch) · **Ollama** running
-`granite3.1-dense:2b` · `slack-bolt` (Socket Mode) · Pydantic · SQLite · pytest ·
-**Kind** (local cluster) · Docker. Everything is free and runs locally.
+`granite3.1-dense:2b` (swappable) · `slack-bolt` (Socket Mode) · Pydantic · SQLite ·
+pytest · **Kind** (local cluster) · Docker. Everything is free and runs locally.
 
 ---
 
