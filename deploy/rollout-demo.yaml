@@ -1,0 +1,35 @@
+# Demo for rollout-undo (#9). Apply this HEALTHY version first; it becomes
+# revision 1 and runs fine. Then simulate a bad deploy:
+#
+#   kubectl apply -f deploy/rollout-demo.yaml
+#   kubectl -n kubeheal-demo rollout status deployment/rollout-demo   # wait until ready
+#   # break it — a non-existent image tag (revision 2, fails to pull):
+#   kubectl -n kubeheal-demo set image deployment/rollout-demo web=nginx:does-not-exist-9999
+#
+# KubeHeal then sees revision 2 failing, notices the image changed vs revision 1
+# (which is recent), and proposes a rollback to revision 1. Approve in Slack and
+# it reverts — back to a template that already ran.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rollout-demo
+  namespace: kubeheal-demo
+  labels: { app: rollout-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: rollout-demo }
+  template:
+    metadata:
+      labels: { app: rollout-demo }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine    # healthy — revision 1
+          ports:
+            - containerPort: 80
+          resources:
+            limits:
+              memory: "64Mi"
+            requests:
+              memory: "32Mi"

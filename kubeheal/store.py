@@ -57,7 +57,8 @@ def init_db() -> None:
                 slack_ts        TEXT,
                 created_at      TEXT NOT NULL,
                 updated_at      TEXT NOT NULL,
-                last_reminded_at TEXT
+                last_reminded_at TEXT,
+                action          TEXT NOT NULL DEFAULT 'patch'
             );
 
             CREATE TABLE IF NOT EXISTS audit_log (
@@ -76,10 +77,12 @@ def init_db() -> None:
             );
             """
         )
-        # Migration for DBs created before last_reminded_at existed.
+        # Migrations for DBs created before newer columns existed.
         cols = [r["name"] for r in c.execute("PRAGMA table_info(pending_approvals)").fetchall()]
         if "last_reminded_at" not in cols:
             c.execute("ALTER TABLE pending_approvals ADD COLUMN last_reminded_at TEXT")
+        if "action" not in cols:
+            c.execute("ALTER TABLE pending_approvals ADD COLUMN action TEXT NOT NULL DEFAULT 'patch'")
 
 
 def should_alert(workload_key: str, cooldown_seconds: int) -> bool:
@@ -132,6 +135,48 @@ def create_pending(incident: Incident, diagnosis: Diagnosis) -> str:
         )
     audit(approval_id, f"{incident.workload_kind}/{incident.workload_name}",
           "proposed", diagnosis.diagnosis, actor="kubeheal")
+    return approval_id
+
+
+def create_rollback_pending(
+    incident: Incident, to_rs_name: str, from_revision: int, to_revision: int, summary: str
+) -> str:
+    """A deterministic rollback proposal (no LLM patch). ``patch_json`` holds the
+    rollback target; ``action`` marks it so the approve handler reverts instead
+    of applying a patch."""
+    approval_id = uuid.uuid4().hex
+    now = _now()
+    diagnosis = (f"Recent rollout (revision {from_revision}) is failing — "
+                 f"roll back to revision {to_revision} ({summary}).")
+    with _conn() as c:
+        c.execute(
+            """
+            INSERT INTO pending_approvals (
+                id, workload_kind, workload_name, namespace, container_name,
+                reason, diagnosis, confidence, patch_json, status,
+                created_at, updated_at, action
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                approval_id,
+                incident.workload_kind,
+                incident.workload_name,
+                incident.namespace,
+                incident.container_name,
+                incident.reason.value,
+                diagnosis,
+                1.0,
+                json.dumps({"to_rs_name": to_rs_name,
+                            "from_revision": from_revision,
+                            "to_revision": to_revision}),
+                ApprovalStatus.PENDING.value,
+                now,
+                now,
+                "rollback",
+            ),
+        )
+    audit(approval_id, f"{incident.workload_kind}/{incident.workload_name}",
+          "rollback_proposed", diagnosis, actor="kubeheal")
     return approval_id
 
 

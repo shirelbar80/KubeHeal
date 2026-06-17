@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     cooldown_seconds: int = 300
     # How often to re-ping Slack about a still-unactioned pending approval.
     reminder_seconds: int = 900
+    # A failing rollout is only proposed for rollback if its current revision was
+    # created within this window (i.e. the recent deploy is what broke it).
+    rollback_window_seconds: int = 3600
     log_tail_lines: int = 50
     verify_timeout_seconds: int = 120
 
