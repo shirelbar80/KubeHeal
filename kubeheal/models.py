@@ -64,3 +64,6 @@ class ApprovalStatus(str, Enum):
     APPLIED = "applied"
     FAILED = "failed"
     ROLLED_BACK = "rolled_back"
+    # An incident KubeHeal can't fix in scope — awaits manual acknowledgement.
+    NEEDS_HUMAN = "needs_human"
+    ACKNOWLEDGED = "acknowledged"

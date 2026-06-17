@@ -216,6 +216,8 @@ KubeHeal/
 
 **Also added (beyond original Phase 4):** Pod events in the incident context (so probe/scheduling failures are diagnosable), and a genuinely-fixable `badprobe-demo` (wrong liveness port) showcasing approve-and-heal beyond OOM.
 
+**Incident lifecycle (post-MVP):** every detected failure becomes a single tracked incident — no duplicate alerts while one is open (`has_open_incident`), a reminder re-pings unactioned ones every `REMINDER_SECONDS` (default 15 min, threaded + broadcast), and incidents resolve via **Approve/Reject** (fixable) or **Acknowledge** (needs-a-human). All survive restarts via SQLite.
+
 ---
 
 ## 6. Safety & Guardrails (cross-cutting — do not skip)

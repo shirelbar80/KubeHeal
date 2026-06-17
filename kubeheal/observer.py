@@ -167,6 +167,13 @@ def run(on_incident: IncidentHandler) -> None:
                         continue
 
                     key = f"{incident.workload_kind}/{incident.workload_name}"
+                    # One open incident per workload: if an alert (approval OR a
+                    # needs-a-human notice) for this workload is still unresolved,
+                    # don't post a duplicate — the reminder loop nudges it instead.
+                    if store.has_open_incident(
+                        incident.namespace, incident.workload_kind, incident.workload_name
+                    ):
+                        continue
                     # SQLite-backed cooldown survives restarts and prevents storms.
                     if not store.should_alert(key, cooldown):
                         continue

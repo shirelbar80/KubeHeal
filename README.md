@@ -15,7 +15,8 @@ A human approval is **always required**. The agent never patches the cluster on
 its own, and it can only mutate a restricted set of fields (`resources` + probes)
 in a single dedicated namespace.
 
-See [PLAN.md](PLAN.md) for the full design, decisions, and phased task breakdown.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the architecture, diagrams, and design
+decisions, and [PLAN.md](PLAN.md) for the full phased task breakdown.
 
 ## Status
 
