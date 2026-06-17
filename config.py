@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     # HITL is mandatory; auto-approve is intentionally unsupported and ignored.
     auto_approve: bool = False
     cooldown_seconds: int = 300
+    # How often to re-ping Slack about a still-unactioned pending approval.
+    reminder_seconds: int = 900
     log_tail_lines: int = 50
     verify_timeout_seconds: int = 120
 
