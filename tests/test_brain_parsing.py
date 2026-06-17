@@ -82,6 +82,47 @@ def test_keeps_existing_probe_modification():
     assert c["livenessProbe"]["httpGet"]["port"] == 80
 
 
+def test_keeps_added_startup_probe_for_probe_failure():
+    from kubeheal.brain import _strip_invented_probes
+    from kubeheal.models import FailureReason, Incident
+
+    # Slow-start crashloop: events show a liveness-probe failure, so adding a NEW
+    # startupProbe is a legitimate fix and must be kept (not stripped).
+    slow = Incident(
+        pod_name="p", namespace="n", workload_name="slowstart-demo",
+        reason=FailureReason.CRASH_LOOP_BACKOFF, container_name="web",
+        events="Warning Unhealthy: Liveness probe failed: connection refused\n"
+               "Normal Killing: Container web failed liveness probe, will be restarted",
+        current_spec={"name": "web", "liveness_probe": {"httpGet": {"port": 8080}}},
+    )
+    patch = {"spec": {"template": {"spec": {"containers": [
+        {"name": "web",
+         "startupProbe": {"httpGet": {"path": "/", "port": 8080},
+                          "failureThreshold": 30, "periodSeconds": 2}}
+    ]}}}}
+    _strip_invented_probes(patch, slow)
+    c = patch["spec"]["template"]["spec"]["containers"][0]
+    assert "startupProbe" in c  # kept, because the failure is probe-related
+
+
+def test_strips_invented_probe_for_nonprobe_failure():
+    from kubeheal.brain import _strip_invented_probes
+    from kubeheal.models import FailureReason, Incident
+
+    # No probe mention in events -> non-probe failure -> invented probe stripped.
+    oom = Incident(
+        pod_name="p", namespace="n", workload_name="oom-demo",
+        reason=FailureReason.OOM_KILLED, container_name="hog",
+        events="Warning BackOff: Back-off restarting failed container",
+        current_spec={"name": "hog"},
+    )
+    patch = {"spec": {"template": {"spec": {"containers": [
+        {"name": "hog", "startupProbe": {"httpGet": {"port": 9999}}}
+    ]}}}}
+    _strip_invented_probes(patch, oom)
+    assert "startupProbe" not in patch["spec"]["template"]["spec"]["containers"][0]
+
+
 def test_unsafe_patch_from_model_is_caught():
     d = Diagnosis(
         diagnosis="x", root_cause="y", confidence=0.5,

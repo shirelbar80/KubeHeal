@@ -9,7 +9,9 @@ KubeHeal watches a Kubernetes cluster for failing pods (`CrashLoopBackOff`,
 for a human to **Approve** or **Reject**. Approved patches are dry-run, applied,
 and verified — with a rollback path if recovery fails. When a failure looks like
 a **bad recent deploy**, KubeHeal instead proposes reverting to the previous
-revision (`rollout undo`) — deterministic, no LLM. Failures that can't be fixed
+revision (`rollout undo`); when a slow-starting container is being killed by its
+liveness probe, it proposes adding a **startupProbe** — both deterministic, no
+LLM. Failures that can't be fixed
 within the allow-list (e.g. a bad image with no prior good revision, or missing
 config) skip the LLM and go straight to a **"needs a human"** notice.
 

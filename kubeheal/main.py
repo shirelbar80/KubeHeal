@@ -16,7 +16,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from config import settings
 
-from . import observer, rollback, store
+from . import observer, probefix, rollback, store
 from .brain import BrainError, diagnose
 from .logging_setup import configure, get_logger, kv
 from .models import AUTO_REMEDIABLE_REASONS, FailureReason, Incident
@@ -91,6 +91,14 @@ def main() -> None:
                 log.info("posted rollback proposal %s", kv(id=approval_id, workload=workload))
             except Exception as post_exc:  # noqa: BLE001
                 log.error("failed to post rollback proposal %s", kv(workload=workload, error=post_exc))
+            return
+
+        # A slow-starting container killed by its liveness probe has a reliable,
+        # deterministic fix (add a startupProbe) — don't depend on the LLM.
+        slowfix = probefix.assess(incident)
+        if slowfix is not None:
+            approval_id = post_incident(app, incident, slowfix)
+            log.info("posted startup-probe fix %s", kv(id=approval_id, workload=workload))
             return
 
         # Reasons outside the allow-list (bad image, missing config) can't be
