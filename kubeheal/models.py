@@ -16,8 +16,20 @@ from pydantic import BaseModel, Field
 class FailureReason(str, Enum):
     CRASH_LOOP_BACKOFF = "CrashLoopBackOff"
     OOM_KILLED = "OOMKilled"
+    IMAGE_PULL_BACKOFF = "ImagePullBackOff"
+    CONFIG_ERROR = "CreateContainerConfigError"
     ERROR = "Error"
     OTHER = "Other"
+
+
+# Failures KubeHeal might fix within its allow-list (resources + probes). Other
+# reasons (image pull, missing config) are inherently out of scope — they need a
+# change KubeHeal isn't allowed to make, so they route straight to "needs a human"
+# instead of wasting LLM calls that can only fail.
+AUTO_REMEDIABLE_REASONS: set[FailureReason] = {
+    FailureReason.CRASH_LOOP_BACKOFF,
+    FailureReason.OOM_KILLED,
+}
 
 
 class Incident(BaseModel):

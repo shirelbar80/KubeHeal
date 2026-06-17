@@ -1,9 +1,9 @@
 """The Observer — event-driven failure detection via the K8s Watch API.
 
 Watches Pod objects in the configured namespace, inspects container statuses to
-detect CrashLoopBackOff / OOMKilled, resolves the owning Deployment, applies a
-per-workload cooldown to prevent storms, assembles an ``Incident`` (logs +
-current spec), and hands it to a callback.
+detect CrashLoopBackOff / OOMKilled / ImagePullBackOff / CreateContainerConfigError,
+resolves the owning Deployment, applies a per-workload cooldown to prevent storms,
+assembles an ``Incident`` (logs + events + current spec), and hands it to a callback.
 
 Run standalone to verify detection:
     py -m kubeheal.observer
@@ -47,11 +47,20 @@ def _classify(status: Any) -> tuple[FailureReason, str] | None:
     state = status.state
     last = status.last_state
 
-    if state and state.waiting and state.waiting.reason == "CrashLoopBackOff":
+    waiting_reason = state.waiting.reason if (state and state.waiting) else None
+
+    if waiting_reason == "CrashLoopBackOff":
         # The crash detail lives in the previous termination.
         if last and last.terminated and last.terminated.reason == "OOMKilled":
             return FailureReason.OOM_KILLED, status.name
         return FailureReason.CRASH_LOOP_BACKOFF, status.name
+
+    # Container never started: bad image, or a missing ConfigMap/Secret.
+    if waiting_reason in ("ImagePullBackOff", "ErrImagePull", "InvalidImageName"):
+        return FailureReason.IMAGE_PULL_BACKOFF, status.name
+
+    if waiting_reason in ("CreateContainerConfigError", "CreateContainerError"):
+        return FailureReason.CONFIG_ERROR, status.name
 
     if state and state.terminated and state.terminated.reason == "OOMKilled":
         return FailureReason.OOM_KILLED, status.name

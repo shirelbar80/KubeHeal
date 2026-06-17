@@ -19,10 +19,31 @@ from config import settings
 from . import observer, store
 from .brain import BrainError, diagnose
 from .logging_setup import configure, get_logger, kv
-from .models import Incident
+from .models import AUTO_REMEDIABLE_REASONS, FailureReason, Incident
 from .slack_app import build_app, post_incident, post_reminder, post_unremediable
 
 log = get_logger("kubeheal.main")
+
+# Human-facing hints for failures KubeHeal can detect but not fix in scope.
+_OUT_OF_SCOPE_HINTS = {
+    FailureReason.IMAGE_PULL_BACKOFF:
+        "Image pull is failing — check the image name/tag, the registry, and imagePullSecrets.",
+    FailureReason.CONFIG_ERROR:
+        "A referenced ConfigMap or Secret is missing or invalid — create it or fix the reference.",
+}
+
+
+def _unfixable_detail(incident: Incident) -> str:
+    """A reason-specific hint plus the most telling Pod event line, if any."""
+    hint = _OUT_OF_SCOPE_HINTS.get(
+        incident.reason, "This failure is outside KubeHeal's fixable scope (resources + probes)."
+    )
+    cause = next(
+        (ln.strip() for ln in incident.events.splitlines()
+         if any(k in ln for k in ("Failed", "not found", "ErrImagePull", "Error"))),
+        "",
+    )
+    return f"{hint}\n{cause}".strip() if cause else hint
 
 
 def _require_config() -> None:
@@ -50,6 +71,18 @@ def main() -> None:
 
     def process(incident: Incident) -> None:
         workload = f"{incident.workload_kind}/{incident.workload_name}"
+
+        # Reasons outside the allow-list (bad image, missing config) can't be
+        # fixed by a resources/probes patch — skip the LLM and notify a human.
+        if incident.reason not in AUTO_REMEDIABLE_REASONS:
+            log.info("out-of-scope incident %s", kv(workload=workload, reason=incident.reason.value))
+            try:
+                incident_id = post_unremediable(app, incident, _unfixable_detail(incident))
+                log.info("posted needs-a-human %s", kv(id=incident_id, workload=workload))
+            except Exception as post_exc:  # noqa: BLE001
+                log.error("failed to post unremediable notice %s", kv(workload=workload, error=post_exc))
+            return
+
         try:
             diagnosis = diagnose(incident)
         except BrainError as exc:

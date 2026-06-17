@@ -4,9 +4,12 @@
 > and a **human-in-the-loop** Slack approval flow. Zero paid services.
 
 KubeHeal watches a Kubernetes cluster for failing pods (`CrashLoopBackOff`,
-`OOMKilled`), asks a local LLM (via Ollama) to diagnose the failure and propose a
-patch, then posts it to Slack for a human to **Approve** or **Reject**. Approved
-patches are dry-run, applied, and verified — with a rollback path if recovery fails.
+`OOMKilled`, `ImagePullBackOff`, `CreateContainerConfigError`), asks a local LLM
+(via Ollama) to diagnose the failure and propose a patch, then posts it to Slack
+for a human to **Approve** or **Reject**. Approved patches are dry-run, applied,
+and verified — with a rollback path if recovery fails. Failures that can't be
+fixed within the allow-list (e.g. a bad image or missing config) skip the LLM and
+go straight to a **"needs a human"** notice.
 
 A human approval is **always required**. The agent never patches the cluster on
 its own, and it can only mutate a restricted set of fields (`resources` + probes)
