@@ -6,7 +6,8 @@
 KubeHeal watches a Kubernetes cluster for failing pods (`CrashLoopBackOff`,
 `OOMKilled`, `ImagePullBackOff`, `CreateContainerConfigError`), asks a local LLM
 (via Ollama) to diagnose the failure and propose a patch, then posts it to Slack
-for a human to **Approve** or **Reject**. Approved patches are dry-run, applied,
+for a human to **Approve** or **Reject** — the alert shows a readable before→after
+diff (e.g. `resources.limits.memory: 10Mi → 40Mi`), not just raw JSON. Approved patches are dry-run, applied,
 and verified — with a rollback path if recovery fails. When a failure looks like
 a **bad recent deploy**, KubeHeal instead proposes reverting to the previous
 revision (`rollout undo`); when a slow-starting container is being killed by its
