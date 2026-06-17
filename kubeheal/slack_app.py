@@ -17,7 +17,7 @@ from slack_bolt import App
 from config import settings
 
 from .models import ApprovalStatus, Diagnosis, Incident
-from .remediator import apply_patch
+from .remediator import apply_patch, rollback
 from . import store
 
 
@@ -128,17 +128,23 @@ def build_app() -> App:
         workload = f"{row['workload_kind']}/{row['workload_name']}"
         store.audit(approval_id, workload, "approved", actor=user)
 
+        is_rollback = row.get("action") == "rollback"
+        verb = "Rolling back" if is_rollback else "Applying patch"
         channel, ts = body["channel"]["id"], body["message"]["ts"]
         client.chat_update(
-            channel=channel, ts=ts, text="Applying patch…",
+            channel=channel, ts=ts, text=f"{verb}…",
             blocks=_resolved_blocks(
-                f"⏳ Applying: {row['workload_name']}",
+                f"⏳ {verb}: {row['workload_name']}",
                 [f"Approved by <@{body['user']['id']}>. Dry-running and applying…"],
             ),
         )
 
-        patch = json.loads(row["patch_json"])
-        result = apply_patch(row["workload_name"], row["namespace"], row["container_name"], patch)
+        if is_rollback:
+            meta = json.loads(row["patch_json"])
+            result = rollback(row["workload_name"], row["namespace"], meta["to_rs_name"])
+        else:
+            patch = json.loads(row["patch_json"])
+            result = apply_patch(row["workload_name"], row["namespace"], row["container_name"], patch)
 
         if result.ok:
             status, header, icon = ApprovalStatus.APPLIED, f"✅ Healed: {row['workload_name']}", "✅"
@@ -216,6 +222,52 @@ def post_incident(app: App, incident: Incident, diagnosis: Diagnosis) -> str:
         channel=settings.slack_channel,
         text=f"{incident.reason.value} in {incident.workload_name} — approval needed",
         blocks=_alert_blocks(approval_id, incident, diagnosis),
+    )
+    store.set_slack_ref(approval_id, resp["channel"], resp["ts"])
+    return approval_id
+
+
+def _approve_reject_actions(approval_id: str) -> dict:
+    return {
+        "type": "actions",
+        "block_id": "kubeheal_actions",
+        "elements": [
+            {"type": "button", "style": "primary",
+             "text": {"type": "plain_text", "text": "✅ Approve"},
+             "action_id": "approve_patch", "value": approval_id},
+            {"type": "button", "style": "danger",
+             "text": {"type": "plain_text", "text": "❌ Reject"},
+             "action_id": "reject_patch", "value": approval_id},
+        ],
+    }
+
+
+def post_rollback_proposal(app: App, incident, info) -> str:
+    """Propose reverting a failing recent deploy to its previous revision. Uses
+    the same Approve/Reject buttons (the handler branches on the row's action)."""
+    approval_id = store.create_rollback_pending(
+        incident, info.to_rs_name, info.from_revision, info.to_revision, info.summary
+    )
+    resp = app.client.chat_postMessage(
+        channel=settings.slack_channel,
+        text=f"Rollback proposed for {incident.workload_name}",
+        blocks=[
+            {"type": "header",
+             "text": {"type": "plain_text", "text": f"🔄 Rollback proposed: {incident.workload_name}"}},
+            {"type": "section", "fields": [
+                {"type": "mrkdwn", "text": f"*Workload:*\n{incident.workload_kind}/{incident.workload_name}"},
+                {"type": "mrkdwn", "text": f"*Failure:*\n{incident.reason.value}"},
+                {"type": "mrkdwn", "text": f"*Current revision:*\n{info.from_revision} (failing)"},
+                {"type": "mrkdwn", "text": f"*Revert to:*\nrevision {info.to_revision}"},
+            ]},
+            {"type": "section", "text": {"type": "mrkdwn", "text": (
+                f"The latest deploy looks like the cause ({info.summary}). "
+                "Approving reverts the Deployment to the previous revision's spec — "
+                "a template that already ran. Dry-run + verify still apply."
+            )}},
+            _approve_reject_actions(approval_id),
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"id: `{approval_id}`"}]},
+        ],
     )
     store.set_slack_ref(approval_id, resp["channel"], resp["ts"])
     return approval_id

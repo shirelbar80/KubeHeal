@@ -166,3 +166,40 @@ def apply_patch(
         return RemediationResult(
             ok=False, message=f"patch failed AND rollback failed: {exc.reason}"
         )
+
+
+def rollback(workload_name: str, namespace: str, to_rs_name: str) -> RemediationResult:
+    """Revert a Deployment to a previous revision's pod template (like
+    ``kubectl rollout undo``): dry-run, replace, verify. Bypasses the patch
+    allow-list intentionally — we're restoring a template that already ran, not
+    applying an LLM-proposed change."""
+    from .rollback import target_template
+
+    try:
+        template = target_template(namespace, to_rs_name)
+        dep = apps_v1().read_namespaced_deployment(workload_name, namespace)
+    except ApiException as exc:
+        return RemediationResult(ok=False, message=f"could not read deployment/replicaset: {exc.reason}")
+
+    dep.spec.template = template
+
+    try:
+        apps_v1().replace_namespaced_deployment(workload_name, namespace, dep, dry_run="All")
+    except ApiException as exc:
+        return RemediationResult(
+            ok=False, message=f"dry-run rejected the rollback: {exc.reason}", dry_run_failed=True
+        )
+
+    try:
+        apps_v1().replace_namespaced_deployment(workload_name, namespace, dep)
+    except ApiException as exc:
+        return RemediationResult(ok=False, message=f"rollback apply failed: {exc.reason}")
+
+    if _verify_rollout(workload_name, namespace, settings.verify_timeout_seconds):
+        _annotate_applied(workload_name, namespace, f"rolled back to a prior revision ({to_rs_name})")
+        log.info("rolled back %s", kv(workload=workload_name, to_rs=to_rs_name))
+        return RemediationResult(ok=True, message="rolled back to the previous revision; workload healthy")
+
+    return RemediationResult(
+        ok=False, message="rollback applied but the workload is still not healthy — needs investigation"
+    )

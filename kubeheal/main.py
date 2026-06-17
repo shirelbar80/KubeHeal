@@ -16,11 +16,17 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from config import settings
 
-from . import observer, store
+from . import observer, rollback, store
 from .brain import BrainError, diagnose
 from .logging_setup import configure, get_logger, kv
 from .models import AUTO_REMEDIABLE_REASONS, FailureReason, Incident
-from .slack_app import build_app, post_incident, post_reminder, post_unremediable
+from .slack_app import (
+    build_app,
+    post_incident,
+    post_reminder,
+    post_rollback_proposal,
+    post_unremediable,
+)
 
 log = get_logger("kubeheal.main")
 
@@ -71,6 +77,21 @@ def main() -> None:
 
     def process(incident: Incident) -> None:
         workload = f"{incident.workload_kind}/{incident.workload_name}"
+
+        # First: is this a failing recent deploy? If so, the safest fix is to
+        # revert to the previous revision — deterministic, no LLM. This also
+        # rescues deploy-induced image/config failures.
+        info = rollback.assess(incident.workload_name, incident.namespace,
+                               settings.rollback_window_seconds)
+        if info is not None:
+            log.info("bad-rollout incident %s", kv(workload=workload,
+                     from_rev=info.from_revision, to_rev=info.to_revision))
+            try:
+                approval_id = post_rollback_proposal(app, incident, info)
+                log.info("posted rollback proposal %s", kv(id=approval_id, workload=workload))
+            except Exception as post_exc:  # noqa: BLE001
+                log.error("failed to post rollback proposal %s", kv(workload=workload, error=post_exc))
+            return
 
         # Reasons outside the allow-list (bad image, missing config) can't be
         # fixed by a resources/probes patch — skip the LLM and notify a human.
