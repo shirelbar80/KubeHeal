@@ -1,0 +1,48 @@
+# Demo workloads that fail in ways KubeHeal detects but cannot auto-fix — the
+# fix is outside the resources/probes allow-list, so they route to the
+# "needs a human" path (no patch is ever proposed).
+#
+#   kubectl apply -f deploy/error-demos.yaml
+#
+# - imagepull-demo:   image tag doesn't exist        -> ImagePullBackOff
+# - configerror-demo: references a missing ConfigMap -> CreateContainerConfigError
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imagepull-demo
+  namespace: kubeheal-demo
+  labels: { app: imagepull-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: imagepull-demo }
+  template:
+    metadata:
+      labels: { app: imagepull-demo }
+    spec:
+      containers:
+        - name: app
+          image: nginx:this-tag-does-not-exist-9999   # unpullable -> ImagePullBackOff
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: configerror-demo
+  namespace: kubeheal-demo
+  labels: { app: configerror-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: configerror-demo }
+  template:
+    metadata:
+      labels: { app: configerror-demo }
+    spec:
+      containers:
+        - name: app
+          image: busybox:1.36
+          command: ["sh", "-c", "echo ok; sleep 3600"]
+          envFrom:
+            - configMapRef:
+                name: missing-config   # does not exist -> CreateContainerConfigError
