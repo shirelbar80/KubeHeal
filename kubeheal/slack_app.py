@@ -17,12 +17,15 @@ from slack_bolt import App
 from config import settings
 
 from .models import ApprovalStatus, Diagnosis, Incident
+from .patchdiff import render_diff
 from .remediator import apply_patch, rollback
 from . import store
 
 
 def _alert_blocks(approval_id: str, incident: Incident, diagnosis: Diagnosis) -> list[dict]:
     patch_str = json.dumps(diagnosis.patch, indent=2)
+    diff_lines = render_diff(incident.current_spec, diagnosis.patch)
+    changes = "\n".join(diff_lines) if diff_lines else "(see raw patch below)"
     return [
         {
             "type": "header",
@@ -40,7 +43,8 @@ def _alert_blocks(approval_id: str, incident: Incident, diagnosis: Diagnosis) ->
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*Diagnosis:* {diagnosis.diagnosis}"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*Root cause:* {diagnosis.root_cause}"}},
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*Proposed fix:* {diagnosis.patch_explanation}"}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Patch:*\n```{patch_str}```"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Changes:*\n```{changes}```"}},
+        {"type": "section", "text": {"type": "mrkdwn", "text": f"*Raw patch:*\n```{patch_str}```"}},
         {
             "type": "actions",
             "block_id": "kubeheal_actions",
