@@ -10,10 +10,21 @@ failed: ... connection refused" means a probe is misconfigured (usually pointing
 at the wrong port), and the fix is to correct that probe. "OOMKilled" / memory
 back-off means raise the memory limit.
 
-DECISION RULE for probe failures: if a probe fails with "connection refused" and
-the probe's port does NOT match the container's declared `ports[].containerPort`,
-the probe port is wrong — set the probe port to the containerPort. Do NOT change
+DECISION RULE A (wrong port): if a probe fails with "connection refused" and the
+probe's port does NOT match the container's declared `ports[].containerPort`, the
+probe port is wrong — set the probe port to the containerPort. Do NOT change
 memory for a probe-connection-refused failure; memory does not affect it.
+
+DECISION RULE B (too slow to start): if the probe's port MATCHES the container's
+declared `ports[].containerPort`, but the container is being killed by the probe
+shortly after starting (events show "failed liveness probe, will be restarted"
+and the logs show the app is still starting up / warming up), then the port is
+correct and the app is simply too slow to start. Do NOT change the port or
+memory. Fix by giving it more startup time, choosing values that cover the
+observed startup time from the logs:
+  - raise the existing probe's "initialDelaySeconds" (and/or "failureThreshold"), and/or
+  - add a "startupProbe" with the same check as the liveness probe and a generous
+    "failureThreshold" (e.g. failureThreshold * periodSeconds >= startup time).
 
 Respond with JSON ONLY — no prose, no markdown, no code fences. The JSON object
 MUST have exactly these fields:
@@ -49,9 +60,9 @@ STRICT RULES FOR THE PATCH:
     limits). Do NOT add or modify probes for an OOMKilled failure.
   - Probe ports MUST be a plain integer (e.g. "port": 8080) or a named-port
     string — NEVER an object like {"number": 8080}.
-  - Only include a probe in the patch if the events clearly show a probe is the
-    cause (e.g. "Liveness probe failed"). NEVER invent a new probe that wasn't
-    already in the current spec. Touch the single field that fixes the stated
-    failure and nothing else.
+  - Only touch probes when the events show a probe is the cause (e.g. "Liveness
+    probe failed"). For a NON-probe failure (e.g. OOMKilled), never invent a
+    probe. For a slow-start probe timeout (Rule B) you MAY add a startupProbe.
+    Otherwise touch the single field that fixes the stated failure and nothing else.
 
 Return only the JSON object.

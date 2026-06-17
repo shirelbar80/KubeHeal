@@ -71,13 +71,24 @@ def _incident_prompt(incident: Incident) -> str:
     )
 
 
+def _is_probe_related(incident: Incident) -> bool:
+    """True if the failure is about a probe (so adding/adjusting probes — even a
+    new startupProbe — is a legitimate fix)."""
+    events = incident.events.lower()
+    return any(p in events for p in ("liveness probe", "readiness probe", "startup probe"))
+
+
 def _strip_invented_probes(patch: dict, incident: Incident) -> None:
     """Remove probe fields the model added that weren't already on the container.
 
     Small models tend to bolt on plausible-looking probes (e.g. an HTTP probe on
-    a port nothing serves), which then fail and block recovery. Policy: modifying
-    an EXISTING probe is allowed; inventing a NEW one is not. Mutates in place.
+    a port nothing serves) onto unrelated fixes (e.g. OOM), which then fail and
+    block recovery. Policy: modifying an EXISTING probe is always allowed; adding
+    a NEW probe is allowed ONLY when the failure is probe-related (e.g. a
+    slow-start crashloop fixed by adding a startupProbe). Mutates in place.
     """
+    if _is_probe_related(incident):
+        return  # a probe failure — the model may legitimately add/adjust probes
     existing = {camel for camel, snake in _PROBE_KEYS.items()
                 if incident.current_spec.get(snake) is not None}
     containers = patch.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])

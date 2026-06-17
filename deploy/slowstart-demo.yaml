@@ -1,0 +1,53 @@
+# Demo for the startup-probe timing fix (#2).
+#
+# The app needs ~25s to start serving on :8080, but the liveness probe (on the
+# CORRECT port) starts checking immediately with no grace period — so the kubelet
+# kills the container mid-startup, over and over: CrashLoopBackOff.
+#
+#   kubectl apply -f deploy/slowstart-demo.yaml
+#
+# This is NOT a wrong-port bug (the probe port matches the containerPort) and NOT
+# OOM — the app is simply too slow to start. KubeHeal should propose giving it
+# more startup time (raise initialDelaySeconds / failureThreshold, or add a
+# startupProbe), not change the port or memory.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slowstart-demo
+  namespace: kubeheal-demo
+  labels: { app: slowstart-demo }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: slowstart-demo }
+  template:
+    metadata:
+      labels: { app: slowstart-demo }
+    spec:
+      containers:
+        - name: web
+          image: python:3.11-alpine
+          command: ["python", "-c"]
+          args:
+            - |
+              import time, http.server, socketserver
+              print("slowstart: warming up for 25s before serving...", flush=True)
+              time.sleep(25)
+              print("slowstart: now serving on :8080", flush=True)
+              socketserver.TCPServer(("", 8080), http.server.SimpleHTTPRequestHandler).serve_forever()
+          ports:
+            - containerPort: 8080
+          # BUG: probe is on the right port (8080) but starts immediately with no
+          # grace — it kills the container during the 25s warm-up.
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 8080
+            initialDelaySeconds: 0
+            periodSeconds: 3
+            failureThreshold: 2
+          resources:
+            limits:
+              memory: "64Mi"
+            requests:
+              memory: "32Mi"
