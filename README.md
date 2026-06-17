@@ -200,6 +200,12 @@ Fill in `.env`:
 python -m kubeheal.main
 ```
 
+> **State storage:** on first run, KubeHeal automatically creates its SQLite
+> database (`kubeheal.sqlite` by default; configurable via `DB_PATH`) and the
+> tables it needs for pending approvals, the audit log, and per-workload
+> cooldown. There's nothing to set up — the file is created on demand. It's
+> git-ignored on purpose, because it's local runtime state, not source.
+
 ---
 
 ## Try it
